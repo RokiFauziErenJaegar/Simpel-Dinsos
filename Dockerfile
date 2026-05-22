@@ -7,7 +7,6 @@ FROM php:8.3-fpm-alpine AS base
 # ===== System deps =====
 RUN apk add --no-cache \
     nginx \
-    supervisor \
     bash \
     curl \
     icu-dev \
@@ -72,24 +71,25 @@ RUN mkdir -p storage/logs storage/framework/cache storage/framework/sessions sto
     && chown -R app:app /app \
     && chmod -R 775 storage bootstrap/cache
 
-# ===== Config nginx, php-fpm, supervisord =====
+# ===== Config nginx & php =====
 COPY docker/nginx.conf /etc/nginx/nginx.conf
 COPY docker/php-fpm.conf /usr/local/etc/php-fpm.d/zz-app.conf
 COPY docker/php.ini /usr/local/etc/php/conf.d/zz-app.ini
 COPY docker/opcache.ini /usr/local/etc/php/conf.d/zz-opcache.ini
-COPY docker/supervisord.conf /etc/supervisor/conf.d/supervisord.conf
 
 # ===== Entrypoint =====
 COPY docker/entrypoint.sh /usr/local/bin/entrypoint.sh
-RUN chmod +x /usr/local/bin/entrypoint.sh
+RUN sed -i 's/\r$//' /usr/local/bin/entrypoint.sh \
+    && chmod +x /usr/local/bin/entrypoint.sh
 
-# ===== Nginx & php-fpm need /var/run =====
-RUN mkdir -p /var/run/php /run/nginx /var/log/supervisor \
-    && chown -R app:app /var/run/php /run/nginx /var/log/supervisor
+# ===== Nginx & php-fpm need /var/run + /var/lib/nginx =====
+RUN mkdir -p /var/run/php /run/nginx /var/lib/nginx/tmp /var/lib/nginx/logs \
+    && chown -R app:app /var/run/php /run/nginx /var/lib/nginx \
+    && touch /var/lib/nginx/logs/error.log /var/lib/nginx/logs/access.log \
+    && chown app:app /var/lib/nginx/logs/*.log
 
 # Railway inject $PORT, default 8080
 ENV PORT=8080
 EXPOSE 8080
 
 ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
-CMD ["supervisord", "-c", "/etc/supervisor/conf.d/supervisord.conf"]
