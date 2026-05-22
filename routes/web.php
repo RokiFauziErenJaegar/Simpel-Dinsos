@@ -14,6 +14,29 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
 // =========================
+// Healthcheck untuk Railway / load balancer
+// Cek koneksi DB + kembalikan 200 OK. Tidak panggil session / cache stack.
+// =========================
+Route::get('/health', function () {
+    try {
+        \Illuminate\Support\Facades\DB::connection()->getPdo();
+        return response()->json([
+            'status' => 'ok',
+            'db' => config('database.default'),
+            'app' => config('app.name'),
+            'time' => now()->toIso8601String(),
+        ], 200);
+    } catch (\Throwable $e) {
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Database unreachable',
+        ], 503);
+    }
+})->withoutMiddleware([
+    \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class,
+]);
+
+// =========================
 // Public site
 // =========================
 Route::get('/', [PublicController::class, 'home'])->name('home');
