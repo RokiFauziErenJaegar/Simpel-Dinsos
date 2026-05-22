@@ -42,6 +42,16 @@ return [
             'synchronous' => null,
         ],
 
+        // Koneksi read-only ke file SQLite lama untuk migrasi data ke MySQL.
+        // Dipakai oleh command `db:migrate-from-sqlite`. Aman untuk dihapus
+        // setelah migrasi selesai & data sudah diverifikasi di MySQL.
+        'sqlite_legacy' => [
+            'driver' => 'sqlite',
+            'database' => database_path('database.sqlite'),
+            'prefix' => '',
+            'foreign_key_constraints' => false,
+        ],
+
         'mysql' => [
             'driver' => 'mysql',
             'url' => env('DB_URL'),
