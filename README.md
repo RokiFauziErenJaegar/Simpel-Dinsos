@@ -17,7 +17,7 @@ Aplikasi web Laravel untuk digitalisasi 16 layanan publik Dinas Sosial Kabupaten
 | Filament | 4.x (admin panel petugas + Kadis) |
 | Livewire | 3.x |
 | Tailwind CSS | 4.x via Vite |
-| Database | SQLite (dev) — siap migrasi MySQL/PostgreSQL untuk produksi |
+| Database | **MySQL / MariaDB 10.4+** (XAMPP). SQLite hanya dipakai sebagai jembatan migrasi data lama via koneksi `sqlite_legacy`. |
 | QR Code | simplesoftwareio/simple-qrcode |
 | PDF | barryvdh/laravel-dompdf |
 
@@ -29,28 +29,63 @@ Aplikasi web Laravel untuk digitalisasi 16 layanan publik Dinas Sosial Kabupaten
 # 1. Masuk ke folder proyek
 cd C:\xampp\htdocs\simpel-dinsos
 
-# 2. (Sudah dilakukan) Install dependencies
+# 2. Install dependencies
 composer install
 npm install
 
-# 3. (Sudah dilakukan) Migrasi & seed database
+# 3. Pastikan MySQL/MariaDB XAMPP jalan, lalu buat database
+mysql -uroot -e "CREATE DATABASE simpel_dinsos CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+# 4. Set kredensial di .env (default XAMPP):
+#    DB_CONNECTION=mysql
+#    DB_HOST=127.0.0.1
+#    DB_PORT=3306
+#    DB_DATABASE=simpel_dinsos
+#    DB_USERNAME=root
+#    DB_PASSWORD=
+
+# 5. Migrasi & seed database
 php artisan migrate:fresh --seed
 
-# 4. Build asset frontend
+# 6. Build asset frontend
 npm run build
 
-# 5. Storage symlink
+# 7. Storage symlink
 php artisan storage:link
 
-# 6. Jalankan server
+# 8. Optimasi (penting! gain 3-5x performa)
+php artisan optimize
+php artisan filament:optimize
+php artisan icons:cache
+
+# 9. Jalankan server
 php artisan serve
 # Akses: http://127.0.0.1:8000
 ```
+
+> **Penting**: Aktifkan **OPcache** di `C:\xampp\php\php.ini` (uncomment `zend_extension=opcache`, set `opcache.enable=1` & `opcache.enable_cli=1`). Tanpa OPcache, response 3-5x lebih lambat karena PHP parse ribuan file Laravel+Filament tiap request.
 
 Untuk development asset live-reload, di terminal terpisah:
 ```bash
 npm run dev
 ```
+
+### Migrasi dari SQLite lama (one-time)
+
+Kalau punya `database/database.sqlite` lama dan ingin pindah ke MySQL:
+
+```bash
+# 1. Backup dulu
+cp database/database.sqlite database/database.sqlite.backup
+
+# 2. Pastikan .env sudah pakai MySQL & migration MySQL sudah jalan
+php artisan migrate --force
+
+# 3. Transfer data
+php artisan db:migrate-from-sqlite --fresh
+```
+
+Command ini membaca dari koneksi `sqlite_legacy` (file SQLite lama, read-only) dan salin per-tabel ke koneksi `mysql` default dengan urutan FK yang benar. Tabel `cache`, `sessions`, `jobs`, `migrations`, dan `password_reset_tokens` di-skip otomatis.
 
 ---
 
@@ -449,7 +484,76 @@ VITE_VAPID_PUBLIC_KEY="${VAPID_PUBLIC_KEY}"
 4. **MinIO**: `cd infra && bash setup-minio.sh` (perlu Docker). Akses console `http://localhost:9001` → buat access key → update `.env` dengan `SECURE_DISK_DRIVER=minio` → restart server → upload baru langsung ke MinIO bucket.
 5. **Flutter**: `cd mobile/flutter && flutter pub get && flutter run` (perlu Flutter SDK + emulator). Login dengan nomor demo `081200000001` (Budi) → OTP di outbox file → masuk ke home dengan 16 layanan.
 
-## Roadmap Fase 7+ (Belum, perlu sumber daya eksternal)
+## Fase 7 — Migrasi Produksi & Performa (Selesai, Mei 2026)
+
+- [x] **Migrasi SQLite → MySQL/MariaDB** — Default database pindah ke MariaDB 10.4 (XAMPP). Connection `sqlite_legacy` ditambah di [config/database.php](config/database.php) sebagai jembatan baca data lama. Command artisan baru: [`db:migrate-from-sqlite`](app/Console/Commands/DbMigrateFromSqliteCommand.php) salin semua data per-tabel dengan urutan FK benar, sync auto-increment counter, dan skip tabel ephemeral (cache/session/jobs/migrations). Fix migrasi: kolom `users.two_factor_recovery_codes` dari `json` → `text` karena nilainya encrypted base64 (MariaDB strict-mode menolak isi non-JSON).
+- [x] **OPcache + Filament cache** — OPcache PHP diaktifkan di `php.ini` (256MB memory, 20k file, `revalidate_freq=0` untuk dev). `filament:optimize` + `event:cache` + `icons:cache` dijalankan saat build. Hasil: `/admin/login` 1.36s → 0.15s (**9× lebih cepat**), `/admin` dashboard 330ms → 97ms (0 query saat cache hit), `/` 1.47s → 0.25s.
+- [x] **Cache widget & navigation badge** — `KadisOverview` widget bungkus 6 query agregat dalam `Cache::remember(60)`. Navigation badge Applications/Tenants/UgbPubPermits cache 30-60 detik. Auto-polling dimatikan untuk hemat query background.
+- [x] **Notifikasi outbound async** — Semua call ke Fonnte (`sendOtp`, `sendApplicationSubmitted`, `sendApplicationCompleted`) di-defer via `dispatch(fn)->afterResponse()` agar user tidak menunggu HTTP outbound 3-8 detik. Timeout Fonnte/Wablas/Cloud diturunkan dari 8s + retry 2x → 5s + retry 1x. Total worst-case dari 24s → 10s untuk gateway terburuk.
+- [x] **Login warga: hanya WhatsApp** — Opsi login via email dihilangkan dari `/masuk` (UI & controller). Sederhana, konsisten dengan kanal notifikasi utama. Method `maskEmail()` dihapus dari `WargaAuthController`.
+- [x] **Fix Secure File 403** — Link "Buka file" di Filament admin (`ApplicationInfolist`) diperbaiki dari `asset('storage/...')` (disk public yang bukan tempat file) ke `route('secure.file', docId)` yang masuk ke `SecureFileController` dengan otorisasi + audit log via `DataAccessLog`.
+- [x] **Fix LaporanBulanan error** — `Filament\Notifications\Actions\Action` (Filament 3) sudah diganti menjadi `Filament\Actions\Action` yang unified di Filament 4. Plus fix bug interpolasi string single-quote di judul notifikasi.
+
+### Konfigurasi Tambahan (Fase 7)
+
+```env
+# Database (XAMPP default)
+DB_CONNECTION=mysql
+DB_HOST=127.0.0.1
+DB_PORT=3306
+DB_DATABASE=simpel_dinsos
+DB_USERNAME=root
+DB_PASSWORD=
+DB_CHARSET=utf8mb4
+DB_COLLATION=utf8mb4_unicode_ci
+
+# Performance (rekomendasi)
+LOG_LEVEL=warning              # debug bikin overhead I/O di tiap request
+APP_DEBUG=false                # set false di produksi (true hanya untuk dev)
+```
+
+Di `C:\xampp\php\php.ini`:
+```ini
+zend_extension=opcache
+opcache.enable=1
+opcache.enable_cli=1
+opcache.memory_consumption=256
+opcache.max_accelerated_files=20000
+opcache.validate_timestamps=1
+opcache.revalidate_freq=0      ; dev: tiap perubahan kode langsung tercermin
+                               ; production: ganti ke validate_timestamps=0 + restart Apache tiap deploy
+```
+
+### Benchmark sebelum & sesudah Fase 7
+
+| URL | Sebelum (SQLite + no OPcache) | Sesudah (MySQL + OPcache + cache) |
+|-----|------|------|
+| `GET /admin/login` | 0.91–1.36s | **0.14–0.24s** |
+| `/admin` (dashboard) | 330ms | **97ms** (0 query) |
+| `/admin/applications` | 432ms | **243ms** |
+| `/admin/tenants` | 608ms | **207ms** |
+| `/` (beranda) | 1.47s | **0.25s** |
+| `/layanan` | 0.60s | **0.32s** |
+
+### Deploy production (`dinsos.rokifauzi.biz.id`)
+
+1. **Buat database MySQL** di cPanel/hosting: `simpel_dinsos` charset `utf8mb4_unicode_ci`.
+2. **Set kredensial `.env`** server (gunakan password kuat, bukan root/kosong).
+3. **Migrasi**:
+   ```bash
+   php artisan migrate --force
+   # Jika ada SQLite production lama, upload database/database.sqlite lalu:
+   php artisan db:migrate-from-sqlite
+   ```
+4. **Optimasi**:
+   ```bash
+   php artisan optimize
+   php artisan filament:optimize
+   php artisan icons:cache
+   ```
+5. **Restart Apache/PHP-FPM** agar OPcache aktif.
+
+## Roadmap Fase 8+ (Belum, perlu sumber daya eksternal)
 
 - [ ] Aktivasi BSrE BSSN real (perlu kredensial dari BSSN)
 - [ ] Aktivasi gateway WA Fonnte/Wablas (perlu kredensial vendor)
@@ -512,10 +616,13 @@ DTSEN_TOKEN=
 
 ## Catatan Pengembang
 
-- **Database**: SQLite untuk dev. Untuk produksi, ganti `DB_CONNECTION` di `.env` ke `mysql` dan jalankan ulang `php artisan migrate:fresh --seed`.
+- **Database**: MySQL/MariaDB (XAMPP) sebagai default. Backup SQLite lama tersimpan di `database/database.sqlite.backup-*`. Connection `sqlite_legacy` di [config/database.php](config/database.php) hanya dipakai oleh command `db:migrate-from-sqlite` — aman dihapus setelah verifikasi data MySQL OK.
+- **Login warga**: hanya via **OTP WhatsApp** (`/masuk`). Opsi login email sudah dihilangkan sejak Mei 2026 untuk konsisten dengan kanal notifikasi utama (Fonnte WA).
+- **Performa**: OPcache **wajib** untuk development & produksi. Setelah deploy/restart, jalankan `php artisan optimize && php artisan filament:optimize` untuk cache komponen Filament & route — bisa turunkan response time dari 1.3s ke 150ms.
+- **Cache aplikasi**: widget Kadis & navigation badge Filament di-cache 30-60 detik (`Cache::remember`). Untuk invalidate manual, jalankan `php artisan cache:clear`.
 - **Locale**: `id` (Bahasa Indonesia) dengan timezone `Asia/Jakarta`.
 - **Seeder idempotency**: jalankan `php artisan migrate:fresh --seed` jika seed berbenturan unique constraint.
-- **IDE diagnostics false positive**: jika IDE menampilkan "Undefined type", biasanya karena vendor belum terindeks. Jalankan `composer dump-autoload` atau restart language server. Runtime PHP tetap berfungsi normal.
+- **IDE diagnostics false positive**: jika IDE menampilkan "Undefined type" untuk class Filament/Laravel, biasanya karena vendor belum terindeks. Jalankan `composer dump-autoload` atau restart language server. Runtime PHP tetap berfungsi normal.
 - **Smoke test data**: jalankan `php tests/smoke.php` untuk membuat 3 pengajuan sampel dengan status berbeda (waiting / serving / completed).
 
 ---
