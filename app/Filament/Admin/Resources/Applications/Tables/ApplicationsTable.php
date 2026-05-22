@@ -1,0 +1,252 @@
+<?php
+
+namespace App\Filament\Admin\Resources\Applications\Tables;
+
+use App\Enums\ApplicationStatus;
+use App\Models\Application;
+use App\Models\ApplicationLog;
+use App\Models\OutputDocument;
+use App\Services\DocumentGenerator;
+use Filament\Actions\Action;
+use Filament\Actions\BulkActionGroup;
+use Filament\Actions\ViewAction;
+use Filament\Forms\Components\Textarea;
+use Filament\Notifications\Notification;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Table;
+
+class ApplicationsTable
+{
+    public static function configure(Table $table): Table
+    {
+        return $table
+            ->defaultSort('submitted_at', 'desc')
+            ->columns([
+                TextColumn::make('code')
+                    ->label('Kode')
+                    ->searchable()
+                    ->copyable()
+                    ->weight('bold')
+                    ->color('primary'),
+
+                TextColumn::make('serviceType.code')
+                    ->label('Layanan')
+                    ->badge()
+                    ->color('gray')
+                    ->tooltip(fn ($record) => $record->serviceType?->name),
+
+                TextColumn::make('beneficiary_name')
+                    ->label('Penerima')
+                    ->searchable()
+                    ->description(fn ($record) => $record->beneficiary_nik ? 'NIK '.$record->beneficiary_nik : null),
+
+                TextColumn::make('status')
+                    ->label('Status')
+                    ->badge()
+                    ->formatStateUsing(fn ($state) => $state instanceof ApplicationStatus ? $state->label() : (ApplicationStatus::tryFrom($state)?->label() ?? $state))
+                    ->color(fn ($state) => $state instanceof ApplicationStatus ? $state->color() : (ApplicationStatus::tryFrom($state)?->color() ?? 'gray')),
+
+                TextColumn::make('currentHandler.name')
+                    ->label('Ditangani')
+                    ->placeholder('— belum —')
+                    ->size('sm')
+                    ->toggleable(),
+
+                TextColumn::make('submitted_at')
+                    ->label('Diajukan')
+                    ->dateTime('d M H:i')
+                    ->sortable(),
+
+                TextColumn::make('sla_due_at')
+                    ->label('Batas SLA')
+                    ->formatStateUsing(function ($record) {
+                        if (! $record->sla_due_at) return '—';
+                        if ($record->status instanceof ApplicationStatus && $record->status->isFinal()) {
+                            return $record->sla_due_at->translatedFormat('d M H:i');
+                        }
+                        $diff = now()->diffInMinutes($record->sla_due_at, false);
+                        if ($diff < 0) return 'Lewat '.abs(round($diff)).' menit';
+                        if ($diff < 60) return 'Sisa '.round($diff).' menit';
+                        return 'Sisa '.round($diff / 60).' jam';
+                    })
+                    ->color(fn ($record) => $record->isOverdue() ? 'danger' : 'gray'),
+            ])
+            ->filters([
+                SelectFilter::make('status')
+                    ->label('Status')
+                    ->options(collect(ApplicationStatus::cases())->mapWithKeys(fn ($s) => [$s->value => $s->label()])->all()),
+                SelectFilter::make('service_type_id')
+                    ->label('Jenis Layanan')
+                    ->relationship('serviceType', 'name'),
+            ])
+            ->recordActions([
+                ViewAction::make()->label('Lihat'),
+
+                Action::make('call')
+                    ->label('Panggil')
+                    ->icon('heroicon-o-megaphone')
+                    ->color('warning')
+                    ->visible(function ($record) {
+                        $ticket = $record->queueTicket;
+                        return $ticket && $ticket->status === 'waiting';
+                    })
+                    ->schema([
+                        \Filament\Forms\Components\Select::make('counter')
+                            ->label('Loket')
+                            ->options([
+                                'LOKET 1' => 'Loket 1',
+                                'LOKET 2' => 'Loket 2',
+                                'LOKET 3' => 'Loket 3',
+                                'LOKET INFO' => 'Loket Informasi',
+                            ])
+                            ->default('LOKET 1')
+                            ->required(),
+                    ])
+                    ->action(function (Application $record, array $data) {
+                        $ticket = $record->queueTicket;
+                        if (! $ticket) return;
+                        $ticket->callToCounter($data['counter'], auth()->id());
+                        Notification::make()
+                            ->success()
+                            ->title('Antrian dipanggil')
+                            ->body($ticket->ticket_number.' ke '.$data['counter'].'. Disuarakan di TV lobi.')
+                            ->send();
+                    }),
+
+                Action::make('verify')
+                    ->label('Setujui')
+                    ->icon('heroicon-o-check-circle')
+                    ->color('success')
+                    ->visible(fn ($record) => in_array($record->status?->value ?? $record->status, ['submitted', 'in_verification']))
+                    ->requiresConfirmation()
+                    ->modalHeading('Setujui pengajuan & lanjutkan?')
+                    ->action(function (Application $record) {
+                        $from = $record->status?->value ?? $record->status;
+                        $record->update([
+                            'status' => ApplicationStatus::InProcess->value,
+                            'current_step' => 'pemrosesan',
+                            'current_handler_id' => auth()->id(),
+                        ]);
+                        ApplicationLog::create([
+                            'application_id' => $record->id,
+                            'user_id' => auth()->id(),
+                            'action' => 'verified',
+                            'from_status' => $from,
+                            'to_status' => ApplicationStatus::InProcess->value,
+                            'notes' => 'Berkas diverifikasi & lanjut ke pemrosesan.',
+                        ]);
+                        Notification::make()->success()->title('Pengajuan disetujui')->send();
+                    }),
+
+                Action::make('return')
+                    ->label('Kembalikan')
+                    ->icon('heroicon-o-arrow-uturn-left')
+                    ->color('info')
+                    ->visible(fn ($record) => ! in_array($record->status?->value ?? $record->status, ['completed', 'rejected', 'returned']))
+                    ->schema([
+                        Textarea::make('notes')->label('Alasan dikembalikan')->required(),
+                    ])
+                    ->action(function (Application $record, array $data) {
+                        $from = $record->status?->value ?? $record->status;
+                        $record->update(['status' => ApplicationStatus::Returned->value]);
+                        ApplicationLog::create([
+                            'application_id' => $record->id,
+                            'user_id' => auth()->id(),
+                            'action' => 'returned',
+                            'from_status' => $from,
+                            'to_status' => ApplicationStatus::Returned->value,
+                            'notes' => $data['notes'],
+                        ]);
+                        Notification::make()->success()->title('Pengajuan dikembalikan ke pemohon')->send();
+                    }),
+
+                Action::make('reject')
+                    ->label('Tolak')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('danger')
+                    ->visible(fn ($record) => ! in_array($record->status?->value ?? $record->status, ['completed', 'rejected']))
+                    ->schema([
+                        Textarea::make('reason')->label('Alasan penolakan')->required(),
+                    ])
+                    ->action(function (Application $record, array $data) {
+                        $from = $record->status?->value ?? $record->status;
+                        $record->update([
+                            'status' => ApplicationStatus::Rejected->value,
+                            'rejection_reason' => $data['reason'],
+                            'completed_at' => now(),
+                        ]);
+                        ApplicationLog::create([
+                            'application_id' => $record->id,
+                            'user_id' => auth()->id(),
+                            'action' => 'rejected',
+                            'from_status' => $from,
+                            'to_status' => ApplicationStatus::Rejected->value,
+                            'notes' => $data['reason'],
+                        ]);
+                        Notification::make()->danger()->title('Pengajuan ditolak')->send();
+                    }),
+
+                Action::make('issue')
+                    ->label('Terbitkan')
+                    ->icon('heroicon-o-document-arrow-down')
+                    ->color('primary')
+                    ->visible(fn ($record) => in_array($record->status?->value ?? $record->status, ['in_process', 'awaiting_signature']))
+                    ->requiresConfirmation()
+                    ->modalHeading('Terbitkan surat ber-QR & selesaikan pengajuan?')
+                    ->modalDescription('Sistem akan membuat PDF resmi dengan kop, nomor surat, QR verifikasi, dan tanda tangan Kepala Dinas.')
+                    ->action(function (Application $record) {
+                        $from = $record->status?->value ?? $record->status;
+
+                        // Pilih signer: Kadis kalau ada, fallback ke user saat ini
+                        $signer = \App\Models\User::where('role', 'kadis')->first() ?? auth()->user();
+
+                        $doc = app(DocumentGenerator::class)->issue($record, $signer);
+
+                        $record->update([
+                            'status' => ApplicationStatus::Completed->value,
+                            'current_step' => 'selesai',
+                            'completed_at' => now(),
+                        ]);
+
+                        ApplicationLog::create([
+                            'application_id' => $record->id,
+                            'user_id' => auth()->id(),
+                            'action' => 'completed',
+                            'from_status' => $from,
+                            'to_status' => ApplicationStatus::Completed->value,
+                            'notes' => 'Surat diterbitkan: '.$doc->document_number,
+                        ]);
+
+                        // Notifikasi outbound (WA/Email) — defer setelah response
+                        // agar admin tidak menunggu HTTP call ke Fonnte/Wablas.
+                        $appId = $record->id;
+                        $docId = $doc->id;
+                        dispatch(function () use ($appId, $docId) {
+                            try {
+                                $app = \App\Models\Application::with('applicant', 'serviceType')->find($appId);
+                                $document = \App\Models\OutputDocument::find($docId);
+                                if ($app && $document) {
+                                    $gateway = app(\App\Services\NotificationGateway::class);
+                                    $gateway->sendApplicationCompleted($app, $document);
+                                    $gateway->sendSurveyInvitation($app);
+                                }
+                            } catch (\Throwable $e) {
+                                \Log::warning('Notif selesai gagal: '.$e->getMessage());
+                            }
+                        })->afterResponse();
+
+                        Notification::make()
+                            ->success()
+                            ->title('Surat terbit: '.$doc->document_number)
+                            ->body('PDF tersimpan & pemohon dinotifikasi.')
+                            ->send();
+                    }),
+            ])
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    //
+                ]),
+            ]);
+    }
+}
