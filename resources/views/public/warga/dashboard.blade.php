@@ -42,21 +42,31 @@
     @else
         <div class="space-y-3">
             @foreach($applications as $app)
-                <a href="{{ route('cek-status.index', ['code' => $app->code]) }}" class="card-elev p-4 flex items-center justify-between hover:-translate-y-0.5 transition">
-                    <div>
-                        <div class="text-xs font-mono text-slate-400">{{ $app->code }}</div>
-                        <div class="font-semibold text-slate-900 mt-0.5">{{ \Illuminate\Support\Str::limit($app->serviceType->name, 60) }}</div>
-                        <div class="text-xs text-slate-500 mt-1">{{ $app->submitted_at?->translatedFormat('d M Y H:i') }}</div>
-                    </div>
-                    @php $color = $app->status->color(); @endphp
-                    <span class="px-3 py-1 rounded-full text-xs font-semibold flex-shrink-0
-                        @if($color === 'success') bg-emerald-100 text-emerald-700
-                        @elseif($color === 'warning') bg-amber-100 text-amber-700
-                        @elseif($color === 'danger') bg-rose-100 text-rose-700
-                        @else bg-slate-100 text-slate-700 @endif">
-                        {{ $app->status->label() }}
-                    </span>
-                </a>
+                @php $isReturned = ($app->status?->value) === 'returned'; @endphp
+                <div class="card-elev p-4 {{ $isReturned ? 'border border-amber-200' : '' }}">
+                    <a href="{{ route('cek-status.index', ['code' => $app->code]) }}" class="flex items-center justify-between hover:opacity-80 transition">
+                        <div>
+                            <div class="text-xs font-mono text-slate-400">{{ $app->code }}</div>
+                            <div class="font-semibold text-slate-900 mt-0.5">{{ \Illuminate\Support\Str::limit($app->serviceType->name, 60) }}</div>
+                            <div class="text-xs text-slate-500 mt-1">{{ $app->submitted_at?->translatedFormat('d M Y H:i') }}</div>
+                        </div>
+                        @php $color = $app->status->color(); @endphp
+                        <span class="px-3 py-1 rounded-full text-xs font-semibold flex-shrink-0
+                            @if($color === 'success') bg-emerald-100 text-emerald-700
+                            @elseif($color === 'warning') bg-amber-100 text-amber-700
+                            @elseif($color === 'danger') bg-rose-100 text-rose-700
+                            @elseif($color === 'info') bg-blue-100 text-blue-700
+                            @else bg-slate-100 text-slate-700 @endif">
+                            {{ $app->status->label() }}
+                        </span>
+                    </a>
+                    @if($isReturned)
+                        <div class="mt-3 pt-3 border-t border-amber-100 flex items-center justify-between gap-3">
+                            <span class="text-xs text-amber-700">⚠ Berkas perlu diperbaiki.</span>
+                            <a href="{{ route('warga.application.fix', $app->code) }}" class="btn-primary text-xs flex-shrink-0">Perbaiki & Kirim Ulang</a>
+                        </div>
+                    @endif
+                </div>
             @endforeach
         </div>
     @endif

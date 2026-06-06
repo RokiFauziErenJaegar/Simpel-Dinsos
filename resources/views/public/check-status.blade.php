@@ -47,6 +47,15 @@
                         @if($application->outputDocument)
                             <a href="{{ route('document.verify', ['token' => $application->outputDocument->verification_token]) }}" class="block mt-3 btn-primary text-sm">Unduh Surat</a>
                         @endif
+                    @elseif($application->status->value === 'returned')
+                        🔁 <strong>Pengajuan dikembalikan untuk diperbaiki.</strong>
+                        @php $reason = $application->logs->where('action', 'returned')->last()?->notes; @endphp
+                        @if($reason)<div class="mt-1 text-xs">Alasan: {{ $reason }}</div>@endif
+                        @auth
+                            @if(auth()->id() === $application->applicant_user_id)
+                                <a href="{{ route('warga.application.fix', $application->code) }}" class="block mt-3 btn-primary text-sm">Perbaiki & Kirim Ulang</a>
+                            @endif
+                        @endauth
                     @elseif($application->isOverdue())
                         ⚠ <strong>Pengajuan ini melebihi SLA standar.</strong> Tim Dinas Sosial sedang menyelesaikan secepat mungkin.
                     @else
@@ -73,6 +82,7 @@
                                 @case('signed') Ditandatangani Kepala Dinas @break
                                 @case('completed') Pengajuan selesai @break
                                 @case('returned') Dikembalikan ke pemohon @break
+                                @case('resubmitted') Pemohon mengirim ulang perbaikan @break
                                 @case('rejected') Ditolak @break
                                 @default {{ ucfirst(str_replace('_', ' ', $log->action)) }}
                             @endswitch

@@ -21,7 +21,7 @@ class KadisOverview extends StatsOverviewWidget
     protected function getStats(): array
     {
         // Cache 60 detik — ringkasan tidak perlu real-time, dipakai untuk laporan.
-        $s = Cache::remember('kadis.overview.v1', 60, function () {
+        $s = Cache::remember('kadis.overview.v2', 60, function () {
             $month = now()->month;
             $year = now()->year;
 
@@ -34,6 +34,30 @@ class KadisOverview extends StatsOverviewWidget
                 ->count();
             $onTimePct = $completed > 0 ? round(($onTime / $completed) * 100, 1) : 0;
 
+            // Rata-rata waktu penyelesaian sebagai % dari batas waktu SLA.
+            // Per pengajuan selesai: (submitted→completed) / (submitted→sla_due) × 100.
+            // < 100% = rata-rata lebih cepat dari SLA; > 100% = melebihi SLA.
+            $finished = Application::whereMonth('submitted_at', $month)
+                ->whereYear('submitted_at', $year)
+                ->where('status', 'completed')
+                ->whereNotNull('completed_at')
+                ->whereNotNull('sla_due_at')
+                ->whereNotNull('submitted_at')
+                ->get(['submitted_at', 'completed_at', 'sla_due_at']);
+
+            $ratios = [];
+            $actualMinutesSum = 0;
+            foreach ($finished as $a) {
+                $budget = $a->submitted_at->diffInMinutes($a->sla_due_at);
+                $actual = $a->submitted_at->diffInMinutes($a->completed_at);
+                if ($budget > 0) {
+                    $ratios[] = $actual / $budget;
+                    $actualMinutesSum += $actual;
+                }
+            }
+            $avgTimePct = count($ratios) ? round((array_sum($ratios) / count($ratios)) * 100, 1) : 0;
+            $avgActualMinutes = count($ratios) ? (int) round($actualMinutesSum / count($ratios)) : 0;
+
             $activeComplaints = Complaint::whereIn('status', ['open', 'in_progress'])->count();
             $servedToday = QueueTicket::whereDate('ticket_date', today())->where('status', 'done')->count();
             $overdue = Application::whereNotIn('status', ['completed', 'rejected'])
@@ -41,11 +65,19 @@ class KadisOverview extends StatsOverviewWidget
                 ->where('sla_due_at', '<', now())
                 ->count();
 
-            return compact('totalMonth', 'completed', 'onTimePct', 'activeComplaints', 'servedToday', 'overdue');
+            return compact('totalMonth', 'completed', 'onTimePct', 'avgTimePct', 'avgActualMinutes',
+                'activeComplaints', 'servedToday', 'overdue');
         });
 
         ['totalMonth' => $totalMonth, 'completed' => $completed, 'onTimePct' => $onTimePct,
+         'avgTimePct' => $avgTimePct, 'avgActualMinutes' => $avgActualMinutes,
          'activeComplaints' => $activeComplaints, 'servedToday' => $servedToday, 'overdue' => $overdue] = $s;
+
+        // Format ringkas durasi rata-rata untuk deskripsi.
+        $avgTimeHuman = $avgActualMinutes <= 0 ? '—'
+            : ($avgActualMinutes < 60 ? $avgActualMinutes.' mnt'
+            : ($avgActualMinutes < 1440 ? round($avgActualMinutes / 60, 1).' jam'
+            : round($avgActualMinutes / 1440, 1).' hari'));
 
         return [
             Stat::make('Pemohon Bulan Ini', number_format($totalMonth))
@@ -58,6 +90,13 @@ class KadisOverview extends StatsOverviewWidget
                 ->description($onTimePct >= 90 ? 'Memenuhi target' : 'Di bawah target 90%')
                 ->descriptionIcon($onTimePct >= 90 ? 'heroicon-m-arrow-trending-up' : 'heroicon-m-arrow-trending-down')
                 ->color($onTimePct >= 90 ? 'success' : 'warning'),
+
+            Stat::make('Rata-rata Waktu Penyelesaian', $avgTimePct.' %')
+                ->description($completed > 0
+                    ? 'dari batas SLA · ≈ '.$avgTimeHuman.' per pengajuan'
+                    : 'Belum ada pengajuan selesai bulan ini')
+                ->descriptionIcon('heroicon-m-clock')
+                ->color($avgTimePct == 0 ? 'gray' : ($avgTimePct <= 100 ? 'success' : ($avgTimePct <= 120 ? 'warning' : 'danger'))),
 
             Stat::make('Pengaduan Aktif', $activeComplaints)
                 ->description('Perlu ditindaklanjuti')

@@ -10,7 +10,11 @@ use App\Services\DocumentGenerator;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\Hidden;
+use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
+use Filament\Forms\Components\Toggle;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -146,12 +150,42 @@ class ApplicationsTable
                     ->icon('heroicon-o-arrow-uturn-left')
                     ->color('info')
                     ->visible(fn ($record) => ! in_array($record->status?->value ?? $record->status, ['completed', 'rejected', 'returned']))
+                    ->modalHeading('Kembalikan pengajuan untuk diperbaiki')
                     ->schema([
-                        Textarea::make('notes')->label('Alasan dikembalikan')->required(),
+                        Textarea::make('notes')
+                            ->label('Alasan umum dikembalikan')
+                            ->required()
+                            ->placeholder('Mis. Beberapa berkas tidak terbaca jelas, mohon unggah ulang.'),
+                        Repeater::make('doc_review')
+                            ->label('Tandai berkas yang tidak sesuai')
+                            ->addable(false)
+                            ->deletable(false)
+                            ->reorderable(false)
+                            ->itemLabel(fn (array $state): ?string => $state['label'] ?? 'Berkas')
+                            ->default(fn (Application $record) => $record->documents
+                                ->map(fn ($d) => [
+                                    'document_id' => (string) $d->id,
+                                    'label' => $d->label,
+                                    'invalid' => false,
+                                    'note' => null,
+                                ])->values()->all())
+                            ->schema([
+                                Hidden::make('document_id'),
+                                Hidden::make('label'),
+                                Toggle::make('invalid')->label('Tidak sesuai / perlu diperbaiki'),
+                                TextInput::make('note')
+                                    ->label('Catatan untuk pemohon')
+                                    ->placeholder('Apa yang harus diperbaiki?'),
+                            ])
+                            ->columns(1),
                     ])
                     ->action(function (Application $record, array $data) {
                         $from = $record->status?->value ?? $record->status;
                         $record->update(['status' => ApplicationStatus::Returned->value]);
+
+                        // Tandai status validasi tiap berkas sesuai centang petugas.
+                        $record->applyDocumentReview($data['doc_review'] ?? []);
+
                         ApplicationLog::create([
                             'application_id' => $record->id,
                             'user_id' => auth()->id(),

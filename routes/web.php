@@ -77,6 +77,10 @@ Route::middleware('auth')->group(function () {
     Route::get('/akun', [WargaAuthController::class, 'dashboard'])->name('warga.dashboard');
     Route::post('/keluar', [WargaAuthController::class, 'logout'])->name('warga.logout');
 
+    // Perbaiki & kirim ulang pengajuan yang dikembalikan
+    Route::get('/akun/pengajuan/{code}/perbaiki', [\App\Http\Controllers\ApplicationResubmitController::class, 'edit'])->name('warga.application.fix');
+    Route::post('/akun/pengajuan/{code}/perbaiki', [\App\Http\Controllers\ApplicationResubmitController::class, 'update'])->name('warga.application.fix.submit');
+
     // Hak atas data pribadi (UU PDP)
     Route::get('/akun/data-saya', [WargaDataRightsController::class, 'showDataRights'])->name('warga.data.rights');
     Route::get('/akun/data-saya/ekspor', [WargaDataRightsController::class, 'exportJson'])->name('warga.data.export');

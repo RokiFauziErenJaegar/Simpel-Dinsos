@@ -131,4 +131,27 @@ class Application extends Model
         $minutes = $this->serviceType->sla_minutes ?? 1440;
         return $this->submitted_at->copy()->addMinutes($minutes);
     }
+
+    /**
+     * Terapkan hasil review berkas saat pengembalian.
+     * $reviews = daftar baris dari form petugas, tiap baris:
+     *   ['document_id' => '...', 'invalid' => bool, 'note' => ?string]
+     *
+     * Berkas yang ditandai `invalid` → is_validated=false + notes (perlu diunggah ulang);
+     * berkas lain → is_validated=true (valid).
+     */
+    public function applyDocumentReview(array $reviews): void
+    {
+        $reviews = collect($reviews);
+
+        foreach ($this->documents as $doc) {
+            $review = $reviews->firstWhere('document_id', (string) $doc->id);
+            $invalid = $review && ($review['invalid'] ?? false);
+
+            $doc->update([
+                'is_validated' => $invalid ? false : true,
+                'notes' => $invalid ? ($review['note'] ?? null) : null,
+            ]);
+        }
+    }
 }
