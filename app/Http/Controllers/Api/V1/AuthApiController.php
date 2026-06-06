@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\V1;
 
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
+use App\Jobs\SendOtpJob;
 use App\Models\OtpCode;
 use App\Models\User;
 use App\Services\NotificationGateway;
@@ -25,14 +26,8 @@ class AuthApiController extends Controller
             'expires_at' => now()->addMinutes(5),
         ]);
 
-        // Defer pengiriman OTP setelah response — hindari blocking pada Fonnte HTTP call.
-        dispatch(function () use ($phone, $code) {
-            try {
-                app(NotificationGateway::class)->sendOtp($phone, $code);
-            } catch (\Throwable $e) {
-                \Log::warning('OTP API send gagal: '.$e->getMessage());
-            }
-        })->afterResponse();
+        // Push ke queue worker (lihat WargaAuthController::sendOtp untuk alasan).
+        SendOtpJob::dispatch($phone, $code);
 
         return response()->json([
             'ok' => true,

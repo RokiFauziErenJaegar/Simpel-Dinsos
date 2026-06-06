@@ -136,6 +136,8 @@ class ApplicationsTable
                             'to_status' => ApplicationStatus::InProcess->value,
                             'notes' => 'Berkas diverifikasi & lanjut ke pemrosesan.',
                         ]);
+                        // Notifikasi WA ke pemohon: pengajuan disetujui & sedang diproses.
+                        \App\Jobs\SendApplicationNotificationJob::dispatch($record->id, 'status');
                         Notification::make()->success()->title('Pengajuan disetujui')->send();
                     }),
 
@@ -158,6 +160,8 @@ class ApplicationsTable
                             'to_status' => ApplicationStatus::Returned->value,
                             'notes' => $data['notes'],
                         ]);
+                        // Notifikasi WA ke pemohon: status dikembalikan + alasan.
+                        \App\Jobs\SendApplicationNotificationJob::dispatch($record->id, 'status', null, $data['notes']);
                         Notification::make()->success()->title('Pengajuan dikembalikan ke pemohon')->send();
                     }),
 
@@ -184,6 +188,8 @@ class ApplicationsTable
                             'to_status' => ApplicationStatus::Rejected->value,
                             'notes' => $data['reason'],
                         ]);
+                        // Notifikasi WA ke pemohon: status ditolak + alasan.
+                        \App\Jobs\SendApplicationNotificationJob::dispatch($record->id, 'status', null, $data['reason']);
                         Notification::make()->danger()->title('Pengajuan ditolak')->send();
                     }),
 
@@ -218,23 +224,9 @@ class ApplicationsTable
                             'notes' => 'Surat diterbitkan: '.$doc->document_number,
                         ]);
 
-                        // Notifikasi outbound (WA/Email) — defer setelah response
-                        // agar admin tidak menunggu HTTP call ke Fonnte/Wablas.
-                        $appId = $record->id;
-                        $docId = $doc->id;
-                        dispatch(function () use ($appId, $docId) {
-                            try {
-                                $app = \App\Models\Application::with('applicant', 'serviceType')->find($appId);
-                                $document = \App\Models\OutputDocument::find($docId);
-                                if ($app && $document) {
-                                    $gateway = app(\App\Services\NotificationGateway::class);
-                                    $gateway->sendApplicationCompleted($app, $document);
-                                    $gateway->sendSurveyInvitation($app);
-                                }
-                            } catch (\Throwable $e) {
-                                \Log::warning('Notif selesai gagal: '.$e->getMessage());
-                            }
-                        })->afterResponse();
+                        // Push ke queue worker (lebih robust dari afterResponse)
+                        \App\Jobs\SendApplicationNotificationJob::dispatch($record->id, 'completed', $doc->id);
+                        \App\Jobs\SendApplicationNotificationJob::dispatch($record->id, 'survey');
 
                         Notification::make()
                             ->success()

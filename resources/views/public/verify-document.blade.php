@@ -35,7 +35,7 @@
 
         @if($document->file_path)
             <div class="mt-6 text-center">
-                <a href="{{ asset('storage/'.$document->file_path) }}" target="_blank" class="btn-primary">📄 Buka / Unduh Dokumen</a>
+                <a href="{{ route('document.download', $document->verification_token) }}" target="_blank" class="btn-primary">📄 Buka / Unduh Dokumen</a>
             </div>
         @endif
     </div>

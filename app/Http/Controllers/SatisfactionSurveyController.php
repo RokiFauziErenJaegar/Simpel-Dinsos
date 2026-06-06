@@ -47,6 +47,12 @@ class SatisfactionSurveyController extends Controller
             'submitted_at' => now(),
         ]));
 
+        // SKM selesai → kalau surat sudah terbit, langsung antar ke unduhan.
+        $application->load('outputDocument');
+        if ($application->outputDocument) {
+            return redirect()->route('document.download', ['token' => $application->outputDocument->verification_token]);
+        }
+
         return view('public.skm.thanks', compact('application'));
     }
 }

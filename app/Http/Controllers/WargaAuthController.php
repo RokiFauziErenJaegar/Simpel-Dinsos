@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\UserRole;
+use App\Jobs\SendOtpJob;
 use App\Models\OtpCode;
 use App\Models\User;
 use App\Services\NotificationGateway;
@@ -57,15 +58,10 @@ class WargaAuthController extends Controller
             'expires_at' => now()->addMinutes(5),
         ]);
 
-        // Defer pengiriman OTP setelah HTTP response — user tidak perlu menunggu
-        // call Fonnte/SMTP yang bisa makan 3-8 detik.
-        dispatch(function () use ($normalized, $code) {
-            try {
-                app(NotificationGateway::class)->sendOtp($normalized, $code);
-            } catch (\Throwable $e) {
-                \Log::warning('OTP send gagal: '.$e->getMessage());
-            }
-        })->afterResponse();
+        // Push ke queue worker. Sebelumnya pakai afterResponse() tapi di Railway
+        // (PHP-FPM + nginx) fastcgi_finish_request tidak reliable, callback kadang
+        // tidak fire. True queue lebih robust untuk production.
+        SendOtpJob::dispatch($normalized, $code);
 
         $maskedTarget = $this->maskPhone($normalized);
 
@@ -125,7 +121,16 @@ class WargaAuthController extends Controller
         Auth::login($user, true);
         $user->update(['last_login_at' => now()]);
 
-        return redirect()->intended(route('warga.dashboard'));
+        // Hormati url.intended HANYA bila menunjuk ke area warga.
+        // Jangan pernah lempar warga ke /admin (panel Filament) — di sana
+        // mereka akan kena 403 karena bukan akun internal.
+        $intended = $request->session()->pull('url.intended');
+        $intendedPath = $intended ? parse_url($intended, PHP_URL_PATH) : null;
+        $isAdminPath = $intendedPath && str_starts_with($intendedPath, '/admin');
+
+        return ($intended && ! $isAdminPath)
+            ? redirect()->to($intended)
+            : redirect()->route('warga.dashboard');
     }
 
     public function dashboard()

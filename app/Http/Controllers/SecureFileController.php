@@ -15,7 +15,7 @@ use Symfony\Component\HttpFoundation\StreamedResponse;
  */
 class SecureFileController extends Controller
 {
-    public function download(Request $request, int $docId): StreamedResponse
+    public function show(Request $request, int $docId): StreamedResponse
     {
         $doc = ApplicationDocument::with('application.applicant')->findOrFail($docId);
         $user = $request->user();
@@ -32,10 +32,10 @@ class SecureFileController extends Controller
 
         // Audit log akses berkas
         DataAccessLog::record(
-            action: 'download',
+            action: 'view',
             subject: $doc,
             ownerNik: $doc->application->beneficiary_nik,
-            reason: 'Unduh berkas pengajuan '.$doc->application->code,
+            reason: 'Lihat berkas pengajuan '.$doc->application->code,
         );
 
         $disk = Storage::disk('secure');
@@ -43,10 +43,16 @@ class SecureFileController extends Controller
             abort(404, 'Berkas tidak ditemukan di storage.');
         }
 
-        return $disk->download(
+        // Sajikan inline (preview di browser), bukan paksa download.
+        // PDF & gambar akan ditampilkan langsung di tab baru; tipe lain
+        // yang tak bisa dirender browser tetap diunduh otomatis.
+        return $disk->response(
             $doc->file_path,
             $doc->original_name,
-            ['Content-Type' => $doc->mime_type ?? 'application/octet-stream']
+            [
+                'Content-Type' => $doc->mime_type ?? 'application/octet-stream',
+                'Content-Disposition' => 'inline; filename="'.addslashes($doc->original_name).'"',
+            ]
         );
     }
 }

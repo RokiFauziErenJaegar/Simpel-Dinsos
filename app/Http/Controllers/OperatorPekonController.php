@@ -147,16 +147,8 @@ class OperatorPekonController extends Controller
             return $application;
         });
 
-        // Defer notif outbound setelah response untuk performance
-        $appId = $application->id;
-        dispatch(function () use ($appId) {
-            try {
-                $a = Application::with('applicant', 'serviceType')->find($appId);
-                if ($a) app(\App\Services\NotificationGateway::class)->sendApplicationSubmitted($a);
-            } catch (\Throwable $e) {
-                \Log::warning('Notif gagal: '.$e->getMessage());
-            }
-        })->afterResponse();
+        // Push ke queue worker
+        \App\Jobs\SendApplicationNotificationJob::dispatch($application->id, 'submitted');
 
         return redirect()->route('pekon.dashboard')->with('success',
             'Pengajuan '.$application->code.' berhasil diajukan atas nama '.$application->beneficiary_name);

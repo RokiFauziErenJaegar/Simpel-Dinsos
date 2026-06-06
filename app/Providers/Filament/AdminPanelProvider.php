@@ -2,7 +2,7 @@
 
 namespace App\Providers\Filament;
 
-use Filament\Http\Middleware\Authenticate;
+use App\Http\Middleware\AuthenticateAdminPanel;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
@@ -62,7 +62,9 @@ class AdminPanelProvider extends PanelProvider
                 DispatchServingFilamentEvent::class,
             ])
             ->authMiddleware([
-                Authenticate::class,
+                // Subclass Authenticate: warga/akun tanpa akses di-redirect rapi,
+                // bukan 403 Forbidden. Lihat AuthenticateAdminPanel.
+                AuthenticateAdminPanel::class,
                 \App\Http\Middleware\EnsureTwoFactor::class,
             ]);
     }

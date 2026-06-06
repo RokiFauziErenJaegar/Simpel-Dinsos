@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\ApplicationStatus;
 use App\Models\Application;
 use App\Models\OutputDocument;
 use Illuminate\Support\Facades\Http;
@@ -81,6 +82,40 @@ Estimasi selesai: {$application->sla_due_at?->translatedFormat('d M H:i')}
 TXT);
 
         $this->dispatchTo($applicant, $message, 'Pengajuan diterima · '.$application->code);
+    }
+
+    /**
+     * Kirim notifikasi perubahan status pengajuan (ditolak / dikembalikan /
+     * sedang diproses, dst). Label status diambil dari status terkini
+     * pengajuan, sehingga satu metode ini melayani semua transisi.
+     *
+     * $note = catatan petugas (alasan penolakan / alasan dikembalikan).
+     */
+    public function sendApplicationStatusUpdate(Application $application, ?string $note = null): void
+    {
+        $applicant = $application->applicant;
+        if (! $applicant || ! $applicant->phone) return;
+
+        $status = $application->status instanceof ApplicationStatus
+            ? $application->status
+            : ApplicationStatus::tryFrom((string) $application->status);
+        $statusLabel = $status?->label() ?? (string) $application->status;
+
+        $statusUrl = route('cek-status.index', ['code' => $application->code]);
+        $noteLine = $note ? "Catatan: {$note}\n\n" : '';
+
+        $message = trim(<<<TXT
+Halo {$applicant->name},
+
+Status pengajuan {$application->code} ({$application->serviceType->name})
+diperbarui menjadi: *{$statusLabel}*.
+
+{$noteLine}Cek detail: {$statusUrl}
+
+— Dinas Sosial Pringsewu
+TXT);
+
+        $this->dispatchTo($applicant, $message, 'Update Pengajuan · '.$application->code);
     }
 
     /**

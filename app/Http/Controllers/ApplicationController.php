@@ -110,19 +110,8 @@ class ApplicationController extends Controller
             return $application;
         });
 
-        // Notifikasi outbound (WA/Email) — defer setelah HTTP response dikirim
-        // agar user tidak menunggu I/O outbound (log file / WA gateway).
-        $appId = $application->id;
-        dispatch(function () use ($appId) {
-            try {
-                $app = Application::with('applicant', 'serviceType')->find($appId);
-                if ($app) {
-                    app(\App\Services\NotificationGateway::class)->sendApplicationSubmitted($app);
-                }
-            } catch (\Throwable $e) {
-                \Log::warning('Notif submit gagal: '.$e->getMessage());
-            }
-        })->afterResponse();
+        // Push ke queue worker (lebih robust dari afterResponse di Railway PHP-FPM).
+        \App\Jobs\SendApplicationNotificationJob::dispatch($application->id, 'submitted');
 
         return redirect()->route('pengajuan.sukses', ['code' => $application->code]);
     }

@@ -58,6 +58,8 @@ Route::get('/pengaduan', [PublicController::class, 'complaintCreate'])->name('pe
 Route::post('/pengaduan', [PublicController::class, 'complaintStore'])->name('pengaduan.store');
 
 Route::get('/verify/{token}', [PublicController::class, 'verifyDocument'])->name('document.verify');
+// Unduh surat hasil — wajib isi SKM dulu (gerbang ada di controller).
+Route::get('/surat/{token}/unduh', [PublicController::class, 'downloadDocument'])->name('document.download');
 
 // =========================
 // Warga Auth (OTP WhatsApp)
@@ -155,4 +157,4 @@ Route::post('/pwa/test-push', [\App\Http\Controllers\PwaController::class, 'test
 
 // Berkas sensitif (KTP/KK/foto PPKS) — perlu auth + audit log
 Route::middleware('auth')->get('/secure-file/{docId}',
-    [\App\Http\Controllers\SecureFileController::class, 'download'])->name('secure.file');
+    [\App\Http\Controllers\SecureFileController::class, 'show'])->name('secure.file');

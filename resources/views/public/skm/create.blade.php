@@ -6,6 +6,12 @@
     <h1 class="text-2xl font-bold text-slate-900">Survei Kepuasan Masyarakat</h1>
     <p class="text-slate-600 text-sm mt-1">9 unsur sesuai Permenpan RB No. 14/2017. Hanya 1 menit, masukan Anda sangat berarti.</p>
 
+    @if(session('skm_required'))
+        <div class="mt-4 card-elev p-4 bg-amber-50 text-amber-900 text-sm border border-amber-200">
+            ⚠️ {{ session('skm_required') }}
+        </div>
+    @endif
+
     <div class="mt-4 card-elev p-4 bg-blue-50 text-blue-900 text-sm">
         <strong>{{ $application->code }}</strong> · {{ $application->serviceType->name }}<br>
         Penerima: {{ $application->beneficiary_name }}

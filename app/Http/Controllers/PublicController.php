@@ -3,9 +3,12 @@
 namespace App\Http\Controllers;
 
 use App\Models\Application;
+use App\Models\OutputDocument;
 use App\Models\QueueTicket;
+use App\Models\SatisfactionSurvey;
 use App\Models\ServiceType;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 
 class PublicController extends Controller
 {
@@ -102,10 +105,39 @@ class PublicController extends Controller
 
     public function verifyDocument(string $token)
     {
-        $document = \App\Models\OutputDocument::with(['application.serviceType', 'signedBy'])
+        $document = OutputDocument::with(['application.serviceType', 'signedBy'])
             ->where('verification_token', $token)
             ->firstOrFail();
 
         return view('public.verify-document', compact('document'));
+    }
+
+    /**
+     * Unduh PDF surat hasil. Pemohon WAJIB mengisi SKM lebih dulu;
+     * jika belum, dialihkan ke form survei. Setelah SKM terisi, surat
+     * langsung dapat diunduh (lihat SatisfactionSurveyController::store).
+     */
+    public function downloadDocument(string $token)
+    {
+        $document = OutputDocument::with('application')
+            ->where('verification_token', $token)
+            ->firstOrFail();
+
+        $application = $document->application;
+
+        if (! SatisfactionSurvey::where('application_id', $application->id)->exists()) {
+            return redirect()->route('skm.create', ['code' => $application->code])
+                ->with('skm_required', 'Mohon isi Survei Kepuasan Masyarakat (SKM) di bawah ini terlebih dahulu. Setelah selesai, surat Anda otomatis dapat diunduh.');
+        }
+
+        if (! $document->file_path || ! Storage::disk('public')->exists($document->file_path)) {
+            abort(404, 'Berkas surat tidak ditemukan.');
+        }
+
+        return Storage::disk('public')->response(
+            $document->file_path,
+            'surat-'.$application->code.'.pdf',
+            ['Content-Type' => 'application/pdf'],
+        );
     }
 }
