@@ -30,9 +30,14 @@ class Tenant extends Model
     /** Resolve tenant dari subdomain (mis. pringsewu.simpel-dinsos.id). */
     public static function fromSubdomain(?string $host): ?self
     {
-        if (! $host) return null;
+        if (! $host) {
+            return null;
+        }
         $parts = explode('.', $host);
-        if (count($parts) < 3) return null;
+        if (count($parts) < 3) {
+            return null;
+        }
+
         return static::where('slug', $parts[0])->where('is_active', true)->first();
     }
 

@@ -33,7 +33,8 @@ trait BelongsToTenant
 
         // Global scope filter — hanya aktif kalau mode != single
         if (config('tenant.mode', 'single') !== 'single') {
-            static::addGlobalScope(new class implements Scope {
+            static::addGlobalScope(new class implements Scope
+            {
                 public function apply(Builder $builder, Model $model): void
                 {
                     $tenant = Tenant::current();

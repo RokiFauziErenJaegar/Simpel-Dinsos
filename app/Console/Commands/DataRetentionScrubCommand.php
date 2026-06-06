@@ -34,6 +34,7 @@ class DataRetentionScrubCommand extends Command
 
         if (! $dry && ! $this->option('force') && ! $this->confirm('Yakin jalankan scrub data sensitif?')) {
             $this->warn('Dibatalkan.');
+
             return self::FAILURE;
         }
 
@@ -64,13 +65,15 @@ class DataRetentionScrubCommand extends Command
         foreach ($docs as $doc) {
             $this->line("  - Berkas: {$doc->original_name} (app #{$doc->application_id})");
             if (! $dry) {
-                if ($doc->file_path && Storage::disk('public')->exists($doc->file_path)) {
-                    Storage::disk('public')->delete($doc->file_path);
+                // Berkas pengajuan sensitif tersimpan di disk 'secure'.
+                if ($doc->file_path && Storage::disk('secure')->exists($doc->file_path)) {
+                    Storage::disk('secure')->delete($doc->file_path);
                 }
                 $doc->delete(); // soft-delete jika trait aktif
             }
             $count++;
         }
+
         return $count;
     }
 
@@ -95,6 +98,7 @@ class DataRetentionScrubCommand extends Command
                 $count++;
             }
         }
+
         return $count;
     }
 
@@ -105,7 +109,10 @@ class DataRetentionScrubCommand extends Command
         if (! $dry && $count > 0) {
             $query->delete();
         }
-        if ($count) $this->line("  - OTP expired: {$count} rows");
+        if ($count) {
+            $this->line("  - OTP expired: {$count} rows");
+        }
+
         return $count;
     }
 
@@ -116,7 +123,10 @@ class DataRetentionScrubCommand extends Command
         if (! $dry && $count > 0) {
             $query->delete();
         }
-        if ($count) $this->line("  - Data access logs > 2 tahun: {$count} rows");
+        if ($count) {
+            $this->line("  - Data access logs > 2 tahun: {$count} rows");
+        }
+
         return $count;
     }
 }

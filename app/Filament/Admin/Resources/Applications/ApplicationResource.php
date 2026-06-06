@@ -14,6 +14,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\Cache;
 
 class ApplicationResource extends Resource
 {
@@ -33,7 +34,7 @@ class ApplicationResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        return (string) \Illuminate\Support\Facades\Cache::remember(
+        return (string) Cache::remember(
             'nav.badge.applications.pending',
             30,
             fn () => Application::whereNotIn('status', ['completed', 'rejected'])->count()

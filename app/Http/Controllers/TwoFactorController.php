@@ -2,9 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
 use App\Services\TwoFactorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 use SimpleSoftwareIO\QrCode\Facades\QrCode;
 
 class TwoFactorController extends Controller
@@ -25,7 +28,9 @@ class TwoFactorController extends Controller
             'user' => $user,
             'qrSvg' => $qrSvg,
             'secret' => $user->two_factor_secret,
-            'recoveryCodes' => $user->two_factor_recovery_codes,
+            // Recovery codes hanya ditampilkan SEKALI (plaintext via flash) saat
+            // baru di-generate; di DB tersimpan hashed.
+            'recoveryCodes' => session('recovery_codes_plain', []),
         ]);
     }
 
@@ -44,11 +49,13 @@ class TwoFactorController extends Controller
         $codes = $svc->generateRecoveryCodes();
         $user->forceFill([
             'two_factor_confirmed_at' => now(),
-            'two_factor_recovery_codes' => $codes,
+            // Simpan HASH recovery code, bukan plaintext.
+            'two_factor_recovery_codes' => array_map(fn ($c) => Hash::make($c), $codes),
         ])->save();
 
-        return redirect()->route('two-factor.show')->with('success',
-            '2FA berhasil diaktifkan! Simpan recovery codes di bawah ini.');
+        return redirect()->route('two-factor.show')
+            ->with('success', '2FA berhasil diaktifkan! Simpan recovery codes di bawah ini — hanya ditampilkan sekali.')
+            ->with('recovery_codes_plain', $codes);
     }
 
     public function disable(Request $request)
@@ -78,35 +85,64 @@ class TwoFactorController extends Controller
             return redirect()->route('warga.login');
         }
 
-        $user = \App\Models\User::find($userId);
+        // Throttle anti brute-force TOTP/recovery (5 percobaan / 15 menit).
+        $key = '2fa-verify:'.$userId;
+        if (RateLimiter::tooManyAttempts($key, 5)) {
+            return back()->withErrors([
+                'code' => 'Terlalu banyak percobaan. Coba lagi dalam '.ceil(RateLimiter::availableIn($key) / 60).' menit.',
+            ]);
+        }
+
+        $user = User::find($userId);
         if (! $user) {
             return redirect()->route('warga.login');
         }
 
         $code = trim($data['code']);
 
-        // Cek apakah ini recovery code
+        // Cek recovery code. Recovery code baru tersimpan ter-hash (Hash::check);
+        // namun ada data LAMA yang tersimpan plaintext sebelum P1-9 → Hash::check
+        // akan melempar RuntimeException pada hash non-bcrypt. Tangani keduanya.
         $recoveryCodes = $user->two_factor_recovery_codes ?? [];
-        if (in_array($code, $recoveryCodes, true)) {
-            // Hapus recovery code yang dipakai
-            $remaining = array_values(array_diff($recoveryCodes, [$code]));
-            $user->forceFill(['two_factor_recovery_codes' => $remaining])->save();
-            $this->completeLogin($request, $user);
-            return redirect()->intended('/admin');
+        foreach ($recoveryCodes as $idx => $stored) {
+            $matches = false;
+            try {
+                $matches = Hash::isHashed($stored) && Hash::check($code, $stored);
+            } catch (\Throwable $e) {
+                $matches = false;
+            }
+            // Fallback recovery code lama (plaintext), perbandingan constant-time.
+            if (! $matches && ! Hash::isHashed($stored)) {
+                $matches = hash_equals((string) $stored, $code);
+            }
+
+            if ($matches) {
+                unset($recoveryCodes[$idx]);
+                $user->forceFill(['two_factor_recovery_codes' => array_values($recoveryCodes)])->save();
+                RateLimiter::clear($key);
+                $this->completeLogin($request, $user);
+
+                return redirect()->intended('/admin');
+            }
         }
 
         // Cek TOTP
         if ($svc->verify($user->two_factor_secret, $code)) {
+            RateLimiter::clear($key);
             $this->completeLogin($request, $user);
+
             return redirect()->intended('/admin');
         }
 
-        return back()->withErrors(['code' => 'Kode TOTP tidak valid.']);
+        RateLimiter::hit($key, 900);
+
+        return back()->withErrors(['code' => 'Kode tidak valid.']);
     }
 
     protected function completeLogin(Request $request, $user): void
     {
         Auth::login($user, true);
+        $request->session()->regenerate(); // cegah session fixation
         $request->session()->forget('2fa.user_id');
         $request->session()->put('2fa.verified', true);
         $user->update(['last_login_at' => now()]);

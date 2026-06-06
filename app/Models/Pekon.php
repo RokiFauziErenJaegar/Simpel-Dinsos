@@ -22,6 +22,6 @@ class Pekon extends Model
 
     public function getFullNameAttribute(): string
     {
-        return ucfirst($this->type) . ' ' . $this->name;
+        return ucfirst($this->type).' '.$this->name;
     }
 }

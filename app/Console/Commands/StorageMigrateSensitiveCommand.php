@@ -40,19 +40,28 @@ class StorageMigrateSensitiveCommand extends Command
         ApplicationDocument::chunk(100, function ($docs) use ($public, $secure, $dry, &$migrated, &$skipped, &$errors) {
             foreach ($docs as $doc) {
                 $path = $doc->file_path;
-                if (! $path) { $skipped++; continue; }
+                if (! $path) {
+                    $skipped++;
+
+                    continue;
+                }
 
                 // Sudah di secure?
-                if ($secure->exists($path)) { $skipped++; continue; }
+                if ($secure->exists($path)) {
+                    $skipped++;
+
+                    continue;
+                }
 
                 if (! $public->exists($path)) {
                     $this->warn("  ! tidak ditemukan di public: {$path}");
                     $errors++;
+
                     continue;
                 }
 
                 $contents = $public->get($path);
-                $this->line("  → {$path} (".number_format(strlen($contents))." bytes)");
+                $this->line("  → {$path} (".number_format(strlen($contents)).' bytes)');
 
                 if (! $dry) {
                     $secure->put($path, $contents);

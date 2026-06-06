@@ -33,7 +33,10 @@ class SatisfactionSurvey extends Model
             $this->perilaku, $this->sarana, $this->penanganan_pengaduan,
         ])->filter(fn ($v) => $v !== null);
 
-        if ($items->isEmpty()) return 0;
+        if ($items->isEmpty()) {
+            return 0;
+        }
+
         return round(($items->avg() / 5) * 100, 2);
     }
 }

@@ -29,6 +29,7 @@ use Illuminate\Support\Facades\Storage;
 class NotificationGateway
 {
     protected string $driver;
+
     protected bool $fallbackEmail;
 
     public function __construct()
@@ -44,7 +45,9 @@ class NotificationGateway
     public function sendApplicationCompleted(Application $application, OutputDocument $document): void
     {
         $applicant = $application->applicant;
-        if (! $applicant || ! $applicant->phone) return;
+        if (! $applicant || ! $applicant->phone) {
+            return;
+        }
 
         $verifyUrl = route('document.verify', ['token' => $document->verification_token]);
         $message = trim(<<<TXT
@@ -65,7 +68,9 @@ TXT);
     public function sendApplicationSubmitted(Application $application): void
     {
         $applicant = $application->applicant;
-        if (! $applicant || ! $applicant->phone) return;
+        if (! $applicant || ! $applicant->phone) {
+            return;
+        }
 
         $statusUrl = route('cek-status.index', ['code' => $application->code]);
         $message = trim(<<<TXT
@@ -94,7 +99,9 @@ TXT);
     public function sendApplicationStatusUpdate(Application $application, ?string $note = null): void
     {
         $applicant = $application->applicant;
-        if (! $applicant || ! $applicant->phone) return;
+        if (! $applicant || ! $applicant->phone) {
+            return;
+        }
 
         $status = $application->status instanceof ApplicationStatus
             ? $application->status
@@ -133,9 +140,11 @@ TXT);
             // Mode demo: simpan ke outbox file biar mudah dilihat tanpa SMTP setup
             if ($this->driver === 'log') {
                 $this->sendViaLog('email', $contact, $message);
+
                 return;
             }
             $this->sendViaEmail($contact, 'Kode OTP SIMPEL DINSOS', $message);
+
             return;
         }
 
@@ -146,7 +155,9 @@ TXT);
     public function sendSurveyInvitation(Application $application): void
     {
         $applicant = $application->applicant;
-        if (! $applicant || ! $applicant->phone) return;
+        if (! $applicant || ! $applicant->phone) {
+            return;
+        }
 
         $surveyUrl = route('skm.create', ['code' => $application->code]);
         $message = trim(<<<TXT
@@ -187,14 +198,16 @@ TXT);
      */
     protected function dispatch(string $channel, string $to, string $message, array $opts = []): bool
     {
-        if (! $to) return false;
+        if (! $to) {
+            return false;
+        }
 
         return match ($this->driver) {
             'fonnte' => $this->sendViaFonnte($to, $message),
             'wablas' => $this->sendViaWablas($to, $message),
-            'cloud'  => $this->sendViaCloudApi($to, $message),
-            'email'  => $this->sendViaEmail($to, $opts['email_subject'] ?? 'Notifikasi', $message),
-            default  => $this->sendViaLog($channel, $to, $message),
+            'cloud' => $this->sendViaCloudApi($to, $message),
+            'email' => $this->sendViaEmail($to, $opts['email_subject'] ?? 'Notifikasi', $message),
+            default => $this->sendViaLog($channel, $to, $message),
         };
     }
 
@@ -225,6 +238,7 @@ TXT);
             $message
         );
         Storage::disk('local')->append($outbox, $line."\n");
+
         return true;
     }
 
@@ -241,6 +255,7 @@ TXT);
         $token = config('services.notifications.fonnte_token');
         if (! $token) {
             Log::warning('[FONNTE] FONNTE_TOKEN belum di-set di .env — fallback ke log.');
+
             return $this->sendViaLog('whatsapp', $to, $message);
         }
 
@@ -279,10 +294,12 @@ TXT);
                 // Tetap log ke outbox sebagai backup record
                 $this->sendViaLog('whatsapp-fonnte-fail', $to, $message);
             }
+
             return $ok;
         } catch (\Throwable $e) {
             Log::error('[FONNTE] Exception: '.$e->getMessage(), ['to' => $to]);
             $this->sendViaLog('whatsapp-fonnte-error', $to, $message);
+
             return false;
         }
     }
@@ -302,6 +319,7 @@ TXT);
         $domain = config('services.notifications.wablas_domain', 'https://solo.wablas.com');
         if (! $token) {
             Log::warning('[WABLAS] WABLAS_TOKEN belum di-set, fallback ke log.');
+
             return $this->sendViaLog('whatsapp', $to, $message);
         }
 
@@ -325,10 +343,12 @@ TXT);
                 Log::warning('[WABLAS] Gagal', ['to' => $to, 'response' => $data]);
                 $this->sendViaLog('whatsapp-wablas-fail', $to, $message);
             }
+
             return $ok;
         } catch (\Throwable $e) {
             Log::error('[WABLAS] Exception: '.$e->getMessage());
             $this->sendViaLog('whatsapp-wablas-error', $to, $message);
+
             return false;
         }
     }
@@ -355,6 +375,7 @@ TXT);
         $phoneId = config('services.notifications.whatsapp_phone_id');
         if (! $token || ! $phoneId) {
             Log::warning('[CLOUD] WHATSAPP_TOKEN/PHONE_ID belum di-set, fallback log.');
+
             return $this->sendViaLog('whatsapp', $to, $message);
         }
 
@@ -379,10 +400,12 @@ TXT);
                 Log::warning('[CLOUD] Gagal', ['to' => $to, 'response' => $response->json()]);
                 $this->sendViaLog('whatsapp-cloud-fail', $to, $message);
             }
+
             return $ok;
         } catch (\Throwable $e) {
             Log::error('[CLOUD] Exception: '.$e->getMessage());
             $this->sendViaLog('whatsapp-cloud-error', $to, $message);
+
             return false;
         }
     }
@@ -401,16 +424,20 @@ TXT);
      */
     protected function sendViaEmail(string $to, string $subject, string $body): bool
     {
-        if (! $this->isEmail($to) || $this->isFakeEmail($to)) return false;
+        if (! $this->isEmail($to) || $this->isFakeEmail($to)) {
+            return false;
+        }
 
         try {
             Mail::raw($body, function ($mail) use ($to, $subject) {
                 $mail->to($to)->subject($subject);
             });
             Log::info('[EMAIL] Berhasil', ['to' => $to]);
+
             return true;
         } catch (\Throwable $e) {
             Log::error('[EMAIL] Exception: '.$e->getMessage());
+
             return false;
         }
     }
@@ -437,9 +464,16 @@ TXT);
     protected function normalizePhoneFonnte(string $phone): string
     {
         $phone = preg_replace('/[^0-9+]/', '', $phone);
-        if (str_starts_with($phone, '08')) return '628'.substr($phone, 2);
-        if (str_starts_with($phone, '+62')) return substr($phone, 1);
-        if (str_starts_with($phone, '8')) return '62'.$phone;
+        if (str_starts_with($phone, '08')) {
+            return '628'.substr($phone, 2);
+        }
+        if (str_starts_with($phone, '+62')) {
+            return substr($phone, 1);
+        }
+        if (str_starts_with($phone, '8')) {
+            return '62'.$phone;
+        }
+
         return $phone;
     }
 }

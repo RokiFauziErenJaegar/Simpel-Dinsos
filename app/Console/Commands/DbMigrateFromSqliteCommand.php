@@ -58,6 +58,7 @@ class DbMigrateFromSqliteCommand extends Command
 
         if ($dst === 'sqlite') {
             $this->error('DB_CONNECTION masih sqlite. Ubah .env ke mysql dulu, lalu jalankan ulang.');
+
             return self::FAILURE;
         }
 
@@ -73,6 +74,7 @@ class DbMigrateFromSqliteCommand extends Command
         if ($missing->isNotEmpty()) {
             $this->error('Tabel berikut belum ada di DB tujuan — jalankan `php artisan migrate` dulu:');
             $missing->each(fn ($t) => $this->line("  - {$t}"));
+
             return self::FAILURE;
         }
 
@@ -94,12 +96,14 @@ class DbMigrateFromSqliteCommand extends Command
         foreach ($this->order as $table) {
             if (! in_array($table, $srcTables)) {
                 $this->line("  [skip] {$table} (tidak ada di sumber)");
+
                 continue;
             }
 
             $srcCount = DB::connection($src)->table($table)->count();
             if ($srcCount === 0) {
                 $this->line("  [kosong] {$table}");
+
                 continue;
             }
 
@@ -124,7 +128,7 @@ class DbMigrateFromSqliteCommand extends Command
             if ($this->isMysql($dst)) {
                 $maxId = DB::connection($dst)->table($table)->max('id');
                 if ($maxId) {
-                    DB::connection($dst)->statement("ALTER TABLE `{$table}` AUTO_INCREMENT = " . ($maxId + 1));
+                    DB::connection($dst)->statement("ALTER TABLE `{$table}` AUTO_INCREMENT = ".($maxId + 1));
                 }
             }
         }

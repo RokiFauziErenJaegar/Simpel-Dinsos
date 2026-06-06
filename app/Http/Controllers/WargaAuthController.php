@@ -7,6 +7,7 @@ use App\Jobs\SendOtpJob;
 use App\Models\OtpCode;
 use App\Models\User;
 use App\Services\NotificationGateway;
+use App\Support\PhoneNumber;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
@@ -89,28 +90,45 @@ class WargaAuthController extends Controller
             'code' => 'required|string|size:6',
         ]);
 
-        $otp = OtpCode::where('phone', $data['contact'])
-            ->where('code', $data['code'])
+        // Selalu normalisasi ulang — jangan percaya bentuk 'contact' apa adanya dari form.
+        $phone = PhoneNumber::normalize($data['contact']);
+
+        // Rate-limit percobaan verifikasi per nomor (anti brute-force OTP 6-digit).
+        $key = 'otp-verify:'.$phone;
+        if (RateLimiter::tooManyAttempts($key, 5)) {
+            $seconds = RateLimiter::availableIn($key);
+            throw ValidationException::withMessages([
+                'code' => 'Terlalu banyak percobaan. Coba lagi dalam '.ceil($seconds / 60).' menit.',
+            ]);
+        }
+
+        // Ambil OTP TERBARU untuk nomor ini (tanpa filter kode) agar attempts terhitung
+        // walau kode salah → guard attempts<5 benar-benar berfungsi.
+        $otp = OtpCode::where('phone', $phone)
             ->whereNull('used_at')
             ->latest('id')
             ->first();
 
-        if (! $otp || ! $otp->isValid()) {
-            if ($otp) $otp->increment('attempts');
+        if (! $otp || ! $otp->isValid() || ! hash_equals($otp->code, $data['code'])) {
+            RateLimiter::hit($key, 900);
+            if ($otp && ! $otp->used_at) {
+                $otp->increment('attempts');
+            }
             throw ValidationException::withMessages([
                 'code' => 'Kode OTP salah atau sudah kedaluwarsa.',
             ]);
         }
 
         $otp->update(['used_at' => now()]);
+        RateLimiter::clear($key);
 
-        $user = User::where('phone', $data['contact'])->first();
+        $user = User::where('phone', $phone)->first();
 
         if (! $user) {
             $user = User::create([
-                'name' => 'Warga '.substr($data['contact'], -4),
-                'phone' => $data['contact'],
-                'email' => 'warga'.substr($data['contact'], -8).'@warga.test',
+                'name' => 'Warga '.substr($phone, -4),
+                'phone' => $phone,
+                'email' => 'warga'.substr($phone, -8).'@warga.test',
                 'password' => Hash::make(str()->random(32), ['rounds' => 4]),
                 'role' => UserRole::Warga->value,
                 'is_active' => true,
@@ -119,6 +137,7 @@ class WargaAuthController extends Controller
         }
 
         Auth::login($user, true);
+        $request->session()->regenerate(); // cegah session fixation
         $user->update(['last_login_at' => now()]);
 
         // Hormati url.intended HANYA bila menunjuk ke area warga.
@@ -137,6 +156,7 @@ class WargaAuthController extends Controller
     {
         $user = Auth::user();
         $applications = $user->applications()->with('serviceType', 'queueTicket')->latest()->take(10)->get();
+
         return view('public.warga.dashboard', compact('user', 'applications'));
     }
 
@@ -145,21 +165,17 @@ class WargaAuthController extends Controller
         Auth::logout();
         $request->session()->invalidate();
         $request->session()->regenerateToken();
+
         return redirect()->route('home');
     }
 
     protected function normalizePhone(string $phone): string
     {
-        $phone = preg_replace('/[^0-9+]/', '', $phone);
-        if (str_starts_with($phone, '08')) return '628'.substr($phone, 2);
-        if (str_starts_with($phone, '+62')) return substr($phone, 1);
-        if (str_starts_with($phone, '8')) return '62'.$phone;
-        return $phone;
+        return PhoneNumber::normalize($phone);
     }
 
     protected function maskPhone(string $phone): string
     {
-        if (strlen($phone) < 6) return $phone;
-        return substr($phone, 0, 4).str_repeat('*', strlen($phone) - 7).substr($phone, -3);
+        return PhoneNumber::mask($phone);
     }
 }

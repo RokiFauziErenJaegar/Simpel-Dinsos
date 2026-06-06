@@ -19,7 +19,9 @@ use Illuminate\Support\Facades\Log;
 class LaporGoIdService
 {
     protected string $driver;
+
     protected ?string $baseUrl;
+
     protected ?string $token;
 
     public function __construct()
@@ -45,7 +47,9 @@ class LaporGoIdService
             $exists = Complaint::where('channel', 'lapor')
                 ->where('reporter_contact', $item['reference_id'] ?? null)
                 ->exists();
-            if ($exists) continue;
+            if ($exists) {
+                continue;
+            }
 
             Complaint::create([
                 'code' => Complaint::generateCode(),
@@ -82,6 +86,7 @@ class LaporGoIdService
                 'reference_id' => 'LAPOR-MOCK-'.now()->format('YmdH').'-'.($i + 1),
             ]);
         }
+
         return $items;
     }
 
@@ -89,6 +94,7 @@ class LaporGoIdService
     {
         if (! $this->baseUrl || ! $this->token) {
             Log::warning('[LAPOR] base_url/token belum dikonfigurasi, fallback ke mock.');
+
             return $this->fetchMock($sinceMinutes);
         }
 
@@ -102,6 +108,7 @@ class LaporGoIdService
 
             if (! $res->successful()) {
                 Log::warning('[LAPOR] HTTP '.$res->status());
+
                 return [];
             }
 
@@ -116,6 +123,7 @@ class LaporGoIdService
             })->all();
         } catch (\Throwable $e) {
             Log::error('[LAPOR] '.$e->getMessage());
+
             return [];
         }
     }

@@ -6,10 +6,11 @@ use App\Models\ApplicationLog;
 use App\Models\QueueTicket;
 use App\Models\ServiceType;
 use App\Models\User;
+use Illuminate\Contracts\Console\Kernel;
 
 require __DIR__.'/../vendor/autoload.php';
 $app = require_once __DIR__.'/../bootstrap/app.php';
-$app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
+$app->make(Kernel::class)->bootstrap();
 
 $service = ServiceType::where('slug', 'surat-keterangan-dtsen')->firstOrFail();
 $user = User::where('email', 'budi@warga.test')->firstOrFail();
@@ -109,5 +110,5 @@ QueueTicket::create([
 ]);
 
 echo "OK: app1={$app->code}, app2={$app2->code}, app3={$app3->code}\n";
-echo "Tickets today: ".QueueTicket::whereDate('ticket_date', today())->count()."\n";
-echo "Apps total: ".Application::count()."\n";
+echo 'Tickets today: '.QueueTicket::whereDate('ticket_date', today())->count()."\n";
+echo 'Apps total: '.Application::count()."\n";

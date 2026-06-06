@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\ApplicationStatus;
 use App\Filament\Admin\Resources\Applications\Pages\ListApplications;
+use App\Jobs\SendApplicationNotificationJob;
 use App\Models\Application;
 use App\Models\User;
 use Illuminate\Foundation\Testing\DatabaseTransactions;
@@ -66,6 +67,6 @@ class ReturnActionTest extends TestCase
             ->assertHasNoTableActionErrors();
 
         $this->assertSame(ApplicationStatus::Returned->value, $app->fresh()->status->value);
-        Bus::assertDispatched(\App\Jobs\SendApplicationNotificationJob::class);
+        Bus::assertDispatched(SendApplicationNotificationJob::class);
     }
 }

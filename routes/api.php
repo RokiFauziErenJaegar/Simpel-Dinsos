@@ -23,12 +23,15 @@ Route::prefix('v1')->group(function () {
     Route::get('/queue/status', [ServicesApiController::class, 'queueStatus']);
     Route::get('/applications/{code}', [ServicesApiController::class, 'applicationStatus']);
 
-    // Auth
-    Route::post('/auth/send-otp', [AuthApiController::class, 'sendOtp']);
-    Route::post('/auth/verify-otp', [AuthApiController::class, 'verifyOtp']);
+    // Auth — throttle anti-spam/brute-force (10 request/menit/IP) di samping
+    // rate-limit per-nomor di controller.
+    Route::middleware('throttle:10,1')->group(function () {
+        Route::post('/auth/send-otp', [AuthApiController::class, 'sendOtp']);
+        Route::post('/auth/verify-otp', [AuthApiController::class, 'verifyOtp']);
+    });
 
-    // Authenticated
-    Route::middleware('auth:sanctum')->group(function () {
+    // Authenticated — token Sanctum dengan ability 'warga'
+    Route::middleware(['auth:sanctum', 'abilities:warga'])->group(function () {
         Route::get('/auth/me', [AuthApiController::class, 'me']);
         Route::post('/auth/logout', [AuthApiController::class, 'logout']);
         Route::get('/my/applications', [ServicesApiController::class, 'myApplications']);

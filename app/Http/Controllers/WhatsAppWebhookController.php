@@ -19,13 +19,17 @@ class WhatsAppWebhookController extends Controller
      */
     public function inbound(Request $request, WhatsAppBot $bot)
     {
-        // Verifikasi token sederhana (jika di-set di .env)
+        // Verifikasi token — FAIL CLOSED. Jika token belum dikonfigurasi, tolak
+        // request (jangan biarkan endpoint terbuka tanpa proteksi).
         $expected = config('services.notifications.webhook_token');
-        if ($expected) {
-            $given = $request->header('X-Webhook-Token') ?? $request->input('token');
-            if (! hash_equals($expected, (string) $given)) {
-                return response()->json(['error' => 'Token tidak valid'], 401);
-            }
+        if (! $expected) {
+            Log::warning('[WA-INBOUND] Ditolak: NOTIFICATION_WEBHOOK_TOKEN belum di-set.');
+
+            return response()->json(['error' => 'Webhook belum dikonfigurasi'], 503);
+        }
+        $given = $request->header('X-Webhook-Token') ?? $request->input('token');
+        if (! hash_equals($expected, (string) $given)) {
+            return response()->json(['error' => 'Token tidak valid'], 401);
         }
 
         $payload = $request->all();
@@ -53,6 +57,9 @@ class WhatsAppWebhookController extends Controller
      */
     public function simulate(Request $request, WhatsAppBot $bot)
     {
+        // Hanya untuk lingkungan non-produksi (demo/test).
+        abort_unless(app()->environment(['local', 'testing']), 404);
+
         $data = $request->validate([
             'sender' => 'required|string|max:20',
             'message' => 'required|string|max:500',

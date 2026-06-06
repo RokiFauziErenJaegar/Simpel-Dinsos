@@ -70,11 +70,11 @@
             <div class="space-y-4">
                 @foreach($application->documents as $doc)
                     @php $flagged = $doc->is_validated === false; @endphp
-                    <div class="p-4 rounded-xl border-2 {{ $flagged ? 'border-rose-300 bg-rose-50' : 'border-slate-200' }}">
+                    <div class="doc-row p-4 rounded-xl border-2 {{ $flagged ? 'border-rose-300 bg-rose-50' : 'border-slate-200' }}" @if($flagged) data-flagged="1" @endif>
                         <div class="flex items-center justify-between gap-3">
                             <span class="text-sm font-medium text-slate-700">📎 {{ $doc->label }}</span>
                             @if($flagged)
-                                <span class="text-xs font-semibold text-rose-600 bg-rose-100 px-2 py-0.5 rounded-full flex-shrink-0">Perlu diperbaiki</span>
+                                <span class="js-flag-badge text-xs font-semibold text-rose-600 bg-rose-100 px-2 py-0.5 rounded-full flex-shrink-0">Perlu diperbaiki</span>
                             @else
                                 <span class="text-xs text-slate-400 truncate">{{ $doc->original_name }}</span>
                             @endif
@@ -82,10 +82,8 @@
                         @if($flagged && $doc->notes)
                             <p class="text-xs text-rose-600 mt-1">Catatan petugas: {{ $doc->notes }}</p>
                         @endif
-                        <input type="file" name="replace_docs[{{ $doc->id }}]" accept=".jpg,.jpeg,.png,.pdf" {{ $flagged ? 'required' : '' }} class="mt-2 block w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-[color:var(--brand)] hover:file:bg-blue-100">
-                        @if(! $flagged)
-                            <p class="text-xs text-slate-400 mt-1">Kosongkan bila tidak perlu diganti.</p>
-                        @endif
+                        <input type="file" name="replace_docs[{{ $doc->id }}]" accept=".jpg,.jpeg,.png,.pdf" {{ $flagged ? 'required' : '' }} class="js-doc-file mt-2 block w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-[color:var(--brand)] hover:file:bg-blue-100">
+                        <p class="js-doc-msg text-xs mt-1 {{ $flagged ? 'hidden' : 'text-slate-400' }}">@if(! $flagged)Kosongkan bila tidak perlu diganti.@endif</p>
                     </div>
                 @endforeach
             </div>
@@ -106,5 +104,66 @@
         </div>
     </form>
 </section>
+
+{{-- Safelist: pastikan kelas hijau/merah ikut ter-compile Tailwind --}}
+<span class="hidden border-emerald-300 bg-emerald-50 text-emerald-700 bg-emerald-100 border-rose-300 bg-rose-50 text-rose-600 bg-rose-100"></span>
+
+<script>
+(function () {
+    const MAX_BYTES = 2 * 1024 * 1024; // 2 MB
+    const humanSize = (b) => b >= 1024 * 1024
+        ? (b / (1024 * 1024)).toFixed(1).replace(/\.0$/, '').replace('.', ',') + ' MB'
+        : Math.max(1, Math.round(b / 1024)) + ' KB';
+
+    document.querySelectorAll('.doc-row[data-flagged="1"]').forEach((row) => {
+        const input = row.querySelector('.js-doc-file');
+        const badge = row.querySelector('.js-flag-badge');
+        const msg = row.querySelector('.js-doc-msg');
+        if (!input) return;
+
+        const setRed = (text) => {
+            row.classList.add('border-rose-300', 'bg-rose-50');
+            row.classList.remove('border-emerald-300', 'bg-emerald-50');
+            if (badge) {
+                badge.textContent = 'Perlu diperbaiki';
+                badge.classList.add('text-rose-600', 'bg-rose-100');
+                badge.classList.remove('text-emerald-700', 'bg-emerald-100');
+            }
+            if (msg) {
+                msg.textContent = text || '';
+                msg.className = 'js-doc-msg text-xs mt-1 ' + (text ? 'text-rose-600' : 'hidden');
+            }
+        };
+
+        const setGreen = (name) => {
+            row.classList.remove('border-rose-300', 'bg-rose-50');
+            row.classList.add('border-emerald-300', 'bg-emerald-50');
+            if (badge) {
+                badge.textContent = '✓ Berkas dipilih';
+                badge.classList.remove('text-rose-600', 'bg-rose-100');
+                badge.classList.add('text-emerald-700', 'bg-emerald-100');
+            }
+            if (msg) {
+                msg.textContent = '✓ Siap dikirim: ' + name;
+                msg.className = 'js-doc-msg text-xs mt-1 text-emerald-700';
+            }
+        };
+
+        input.addEventListener('change', () => {
+            const file = input.files && input.files[0];
+            if (!file) {
+                setRed('');
+                return;
+            }
+            if (file.size > MAX_BYTES) {
+                input.value = '';
+                setRed('⚠ "' + file.name + '" (' + humanSize(file.size) + ') melebihi 2 MB. Pilih file lebih kecil.');
+                return;
+            }
+            setGreen(file.name);
+        });
+    });
+})();
+</script>
 
 @endsection

@@ -34,6 +34,7 @@ class Complaint extends Model
     {
         $year = now()->format('Y');
         $count = static::whereYear('created_at', $year)->count() + 1;
+
         return sprintf('ADU-%s-%04d', $year, $count);
     }
 }

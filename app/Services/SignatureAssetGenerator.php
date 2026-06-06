@@ -38,6 +38,7 @@ class SignatureAssetGenerator
     {
         // SVG sederhana yang menyerupai tanda tangan cursive
         $initial = strtoupper(substr($name, 0, 1));
+
         return <<<SVG
 <svg xmlns="http://www.w3.org/2000/svg" width="220" height="100" viewBox="0 0 220 100">
   <g fill="none" stroke="#1a3a8a" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">
@@ -53,7 +54,7 @@ SVG;
     protected function generateStampSvg(): string
     {
         // Stempel bundar dengan tulisan resmi
-        return <<<SVG
+        return <<<'SVG'
 <svg xmlns="http://www.w3.org/2000/svg" width="160" height="160" viewBox="0 0 160 160">
   <defs>
     <path id="topArc" d="M 30 80 A 50 50 0 0 1 130 80"/>

@@ -15,6 +15,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\Cache;
 
 class TenantResource extends Resource
 {
@@ -39,10 +40,10 @@ class TenantResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        return \Illuminate\Support\Facades\Cache::remember(
+        return Cache::remember(
             'nav.badge.tenants',
             60,
-            fn () => Tenant::active()->count() . '/' . Tenant::count()
+            fn () => Tenant::active()->count().'/'.Tenant::count()
         );
     }
 

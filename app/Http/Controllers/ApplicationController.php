@@ -3,25 +3,37 @@
 namespace App\Http\Controllers;
 
 use App\Enums\ApplicationStatus;
+use App\Enums\UserRole;
+use App\Http\Controllers\Concerns\HandlesDocumentUploads;
+use App\Jobs\SendApplicationNotificationJob;
 use App\Models\Application;
 use App\Models\ApplicationDocument;
 use App\Models\ApplicationLog;
 use App\Models\QueueTicket;
 use App\Models\ServiceType;
+use App\Models\User;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Str;
 
 class ApplicationController extends Controller
 {
+    use HandlesDocumentUploads;
+
     public function create(string $slug)
     {
         $service = ServiceType::active()->where('slug', $slug)->firstOrFail();
+
         return view('public.applications.create', compact('service'));
     }
 
     public function store(Request $request, string $slug)
     {
         $service = ServiceType::active()->where('slug', $slug)->firstOrFail();
+
+        $this->guardOversizedUploads($request);
 
         $data = $request->validate([
             'beneficiary_name' => 'required|string|max:150',
@@ -33,7 +45,7 @@ class ApplicationController extends Controller
             'purpose' => 'nullable|string|max:1000',
             'docs.*' => 'required|file|mimes:jpg,jpeg,png,pdf|max:2048',
             'consent' => 'required|accepted',
-        ]);
+        ], $this->documentUploadMessages());
 
         $application = DB::transaction(function () use ($request, $service, $data) {
             $applicant = $this->resolveOrCreateApplicant($data);
@@ -58,7 +70,7 @@ class ApplicationController extends Controller
                         'submitted_at' => now(),
                     ]);
                     break;
-                } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
+                } catch (UniqueConstraintViolationException $e) {
                     if ($attempts >= 3) {
                         throw $e;
                     }
@@ -89,14 +101,12 @@ class ApplicationController extends Controller
                 ]);
             }
 
-            // Generate tiket antrian
-            QueueTicket::create([
+            // Generate tiket antrian (race-safe: retry bila nomor bentrok)
+            QueueTicket::createNext([
                 'application_id' => $application->id,
-                'ticket_number' => QueueTicket::nextNumber('A'),
-                'ticket_date' => today(),
                 'priority' => 'normal',
                 'status' => 'waiting',
-            ]);
+            ], 'A');
 
             // Log
             ApplicationLog::create([
@@ -111,7 +121,7 @@ class ApplicationController extends Controller
         });
 
         // Push ke queue worker (lebih robust dari afterResponse di Railway PHP-FPM).
-        \App\Jobs\SendApplicationNotificationJob::dispatch($application->id, 'submitted');
+        SendApplicationNotificationJob::dispatch($application->id, 'submitted');
 
         return redirect()->route('pengajuan.sukses', ['code' => $application->code]);
     }
@@ -135,15 +145,22 @@ class ApplicationController extends Controller
      * Mencegah UNIQUE collision phone/email saat warga sudah punya akun
      * tapi mengisi form dengan format nomor berbeda.
      */
-    protected function resolveOrCreateApplicant(array $data): \App\Models\User
+    protected function resolveOrCreateApplicant(array $data): User
     {
         // 1. Sudah login → pakai akun yang ada
         if ($user = auth()->user()) {
             // Update profil yang kosong dari data form (best-effort, non-destructive)
             $updates = [];
-            if (! $user->name && ! empty($data['applicant_name'])) $updates['name'] = $data['applicant_name'];
-            if (! $user->email && ! empty($data['applicant_email'])) $updates['email'] = $data['applicant_email'];
-            if ($updates) $user->update($updates);
+            if (! $user->name && ! empty($data['applicant_name'])) {
+                $updates['name'] = $data['applicant_name'];
+            }
+            if (! $user->email && ! empty($data['applicant_email'])) {
+                $updates['email'] = $data['applicant_email'];
+            }
+            if ($updates) {
+                $user->update($updates);
+            }
+
             return $user;
         }
 
@@ -152,40 +169,55 @@ class ApplicationController extends Controller
 
         // 2. Cari by phone (normalized)
         if ($phone) {
-            $user = \App\Models\User::where('phone', $phone)->first();
+            $user = User::where('phone', $phone)->first();
             if ($user) {
-                if (! $user->email && $email) $user->update(['email' => $email]);
+                if (! $user->email && $email) {
+                    $user->update(['email' => $email]);
+                }
+
                 return $user;
             }
         }
 
         // 3. Cari by email (case kalau user pernah daftar pakai email lalu submit pakai HP)
         if ($email) {
-            $user = \App\Models\User::where('email', $email)->first();
+            $user = User::where('email', $email)->first();
             if ($user) {
-                if (! $user->phone && $phone) $user->update(['phone' => $phone]);
+                if (! $user->phone && $phone) {
+                    $user->update(['phone' => $phone]);
+                }
+
                 return $user;
             }
         }
 
         // 4. Buat akun baru
-        return \App\Models\User::create([
+        return User::create([
             'phone' => $phone ?: null,
             'name' => $data['applicant_name'] ?? 'Warga '.($phone ? substr($phone, -4) : substr(uniqid(), -4)),
             'email' => $email ?: ('warga'.substr(uniqid(), -8).'@warga.test'),
-            'password' => \Illuminate\Support\Facades\Hash::make(\Illuminate\Support\Str::random(32), ['rounds' => 4]),
-            'role' => \App\Enums\UserRole::Warga->value,
+            'password' => Hash::make(Str::random(32), ['rounds' => 4]),
+            'role' => UserRole::Warga->value,
             'is_active' => true,
         ]);
     }
 
     protected function normalizePhone(?string $phone): ?string
     {
-        if (! $phone) return null;
+        if (! $phone) {
+            return null;
+        }
         $phone = preg_replace('/[^0-9+]/', '', $phone);
-        if (str_starts_with($phone, '08')) return '628'.substr($phone, 2);
-        if (str_starts_with($phone, '+62')) return substr($phone, 1);
-        if (str_starts_with($phone, '8')) return '62'.$phone;
+        if (str_starts_with($phone, '08')) {
+            return '628'.substr($phone, 2);
+        }
+        if (str_starts_with($phone, '+62')) {
+            return substr($phone, 1);
+        }
+        if (str_starts_with($phone, '8')) {
+            return '62'.$phone;
+        }
+
         return $phone;
     }
 }

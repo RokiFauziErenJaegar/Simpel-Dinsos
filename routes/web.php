@@ -1,16 +1,22 @@
 <?php
 
 use App\Http\Controllers\ApplicationController;
+use App\Http\Controllers\ApplicationResubmitController;
 use App\Http\Controllers\KioskController;
 use App\Http\Controllers\OperatorPekonController;
 use App\Http\Controllers\PublicController;
+use App\Http\Controllers\PwaController;
 use App\Http\Controllers\SatisfactionSurveyController;
+use App\Http\Controllers\SecureFileController;
 use App\Http\Controllers\TvDisplayController;
 use App\Http\Controllers\TwoFactorController;
 use App\Http\Controllers\WargaAuthController;
 use App\Http\Controllers\WargaDataRightsController;
 use App\Http\Controllers\WhatsAppWebhookController;
-use Illuminate\Http\Request;
+use App\Services\DtsenService;
+use App\Services\DukcapilService;
+use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Route;
 
 // =========================
@@ -19,21 +25,22 @@ use Illuminate\Support\Facades\Route;
 // =========================
 Route::get('/health', function () {
     try {
-        \Illuminate\Support\Facades\DB::connection()->getPdo();
+        DB::connection()->getPdo();
+
         return response()->json([
             'status' => 'ok',
             'db' => config('database.default'),
             'app' => config('app.name'),
             'time' => now()->toIso8601String(),
         ], 200);
-    } catch (\Throwable $e) {
+    } catch (Throwable $e) {
         return response()->json([
             'status' => 'error',
             'message' => 'Database unreachable',
         ], 503);
     }
 })->withoutMiddleware([
-    \Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class,
+    VerifyCsrfToken::class,
 ]);
 
 // =========================
@@ -78,8 +85,8 @@ Route::middleware('auth')->group(function () {
     Route::post('/keluar', [WargaAuthController::class, 'logout'])->name('warga.logout');
 
     // Perbaiki & kirim ulang pengajuan yang dikembalikan
-    Route::get('/akun/pengajuan/{code}/perbaiki', [\App\Http\Controllers\ApplicationResubmitController::class, 'edit'])->name('warga.application.fix');
-    Route::post('/akun/pengajuan/{code}/perbaiki', [\App\Http\Controllers\ApplicationResubmitController::class, 'update'])->name('warga.application.fix.submit');
+    Route::get('/akun/pengajuan/{code}/perbaiki', [ApplicationResubmitController::class, 'edit'])->name('warga.application.fix');
+    Route::post('/akun/pengajuan/{code}/perbaiki', [ApplicationResubmitController::class, 'update'])->name('warga.application.fix.submit');
 
     // Hak atas data pribadi (UU PDP)
     Route::get('/akun/data-saya', [WargaDataRightsController::class, 'showDataRights'])->name('warga.data.rights');
@@ -128,21 +135,32 @@ Route::post('/kiosk/tiket', [KioskController::class, 'takeTicket'])->name('kiosk
 // =========================
 // AJAX: Lookup NIK (Dukcapil + DTSEN)
 // =========================
+// Hanya petugas internal & operator pekon (yang memang melayani pengajuan) yang boleh
+// lookup NIK. Endpoint AJAX/JSON → kembalikan 401/403 JSON (bukan redirect), + throttle
+// agar tidak bisa dipakai enumerasi data Dukcapil/DTSEN.
 Route::get('/api/nik/{nik}', function (string $nik) {
+    $user = auth()->user();
+    if (! $user) {
+        return response()->json(['error' => 'Harus login.'], 401);
+    }
+    if (! in_array($user->role?->value, ['admin', 'kadis', 'sekretaris', 'kabid', 'kasi', 'petugas', 'operator_pekon'])) {
+        return response()->json(['error' => 'Tidak ada izin lookup NIK.'], 403);
+    }
+
     return response()->json([
-        'dukcapil' => app(\App\Services\DukcapilService::class)->lookupNik($nik),
-        'dtsen' => app(\App\Services\DtsenService::class)->lookupNik($nik),
+        'dukcapil' => app(DukcapilService::class)->lookupNik($nik),
+        'dtsen' => app(DtsenService::class)->lookupNik($nik),
     ]);
-})->where('nik', '[0-9]{16}')->name('api.nik');
+})->where('nik', '[0-9]{16}')->middleware('throttle:20,1')->name('api.nik');
 
 // =========================
 // WhatsApp Bot Webhook (inbound)
 // =========================
 Route::post('/webhook/wa', [WhatsAppWebhookController::class, 'inbound'])
-    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class])
+    ->withoutMiddleware([VerifyCsrfToken::class])
     ->name('webhook.wa');
 Route::post('/webhook/wa/simulate', [WhatsAppWebhookController::class, 'simulate'])
-    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class])
+    ->withoutMiddleware([VerifyCsrfToken::class])
     ->name('webhook.wa.simulate');
 
 // Halaman demo simulator WA bot
@@ -150,15 +168,19 @@ Route::view('/wa-demo', 'public.wa-demo')->name('wa.demo');
 
 // PWA: halaman offline fallback (dilayani service worker saat offline)
 Route::view('/offline', 'public.offline')->name('offline');
-Route::get('/pwa-test', [\App\Http\Controllers\PwaController::class, 'deviceTest'])->name('pwa.test');
-Route::post('/pwa/subscribe', [\App\Http\Controllers\PwaController::class, 'subscribePush'])
-    ->withoutMiddleware([\Illuminate\Foundation\Http\Middleware\VerifyCsrfToken::class])
+Route::get('/pwa-test', [PwaController::class, 'deviceTest'])->name('pwa.test');
+Route::post('/pwa/subscribe', [PwaController::class, 'subscribePush'])
+    ->withoutMiddleware([VerifyCsrfToken::class])
     ->name('pwa.subscribe');
-Route::get('/pwa/vapid-key', [\App\Http\Controllers\PwaController::class, 'vapidPublicKey'])->name('pwa.vapid');
-Route::post('/pwa/test-push', [\App\Http\Controllers\PwaController::class, 'testServerPush'])
+Route::get('/pwa/vapid-key', [PwaController::class, 'vapidPublicKey'])->name('pwa.vapid');
+Route::post('/pwa/test-push', [PwaController::class, 'testServerPush'])
     ->middleware('auth')
     ->name('pwa.test-push');
 
 // Berkas sensitif (KTP/KK/foto PPKS) — perlu auth + audit log
 Route::middleware('auth')->get('/secure-file/{docId}',
-    [\App\Http\Controllers\SecureFileController::class, 'show'])->name('secure.file');
+    [SecureFileController::class, 'show'])->name('secure.file');
+
+// Dokumen terbitan (surat hasil layanan yang sudah terbit) — perlu auth + audit log
+Route::middleware('auth')->get('/dokumen-terbitan/{docId}',
+    [SecureFileController::class, 'showOutput'])->name('output.file');
