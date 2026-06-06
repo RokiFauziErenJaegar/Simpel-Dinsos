@@ -15,7 +15,9 @@ use Illuminate\Support\Facades\Log;
 class DtsenService
 {
     protected string $driver;
+
     protected ?string $baseUrl;
+
     protected ?string $token;
 
     public function __construct()
@@ -75,6 +77,7 @@ class DtsenService
     {
         if (! $this->baseUrl || ! $this->token) {
             Log::warning('[DTSEN] base_url/token belum dikonfigurasi, fallback mock.');
+
             return $this->lookupMock($nik);
         }
         try {
@@ -84,9 +87,11 @@ class DtsenService
             if ($res->successful()) {
                 return array_merge(['found' => true, 'source' => 'dtsen'], $res->json());
             }
+
             return ['found' => false, 'error' => 'NIK tidak terdaftar di DTSEN.'];
         } catch (\Throwable $e) {
             Log::error('[DTSEN] '.$e->getMessage());
+
             return ['found' => false, 'error' => 'Gangguan koneksi DTSEN. Coba lagi.'];
         }
     }

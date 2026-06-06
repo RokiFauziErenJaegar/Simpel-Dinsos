@@ -11,6 +11,7 @@ class KioskController extends Controller
     public function index()
     {
         $services = ServiceType::active()->orderBy('order_no')->get();
+
         return view('public.kiosk.index', compact('services'));
     }
 
@@ -25,23 +26,14 @@ class KioskController extends Controller
 
         $prefix = ($data['priority'] ?? 'normal') === 'prioritas' ? 'P' : 'A';
 
-        $ticket = QueueTicket::create([
-            'ticket_number' => $this->nextNumber($prefix),
-            'ticket_date' => today()->toDateString(),
+        // Race-safe: pakai generator terpusat QueueTicket::createNext (retry on conflict).
+        $ticket = QueueTicket::createNext([
             'priority' => $data['priority'] ?? 'normal',
             'status' => 'waiting',
             'walk_in_name' => $data['walk_in_name'],
             'walk_in_phone' => $data['walk_in_phone'] ?? null,
-        ]);
+        ], $prefix);
 
         return view('public.kiosk.ticket', compact('ticket'));
-    }
-
-    protected function nextNumber(string $prefix): string
-    {
-        $count = QueueTicket::whereDate('ticket_date', today())
-            ->where('ticket_number', 'like', $prefix.'-%')
-            ->count() + 1;
-        return sprintf('%s-%03d', $prefix, $count);
     }
 }

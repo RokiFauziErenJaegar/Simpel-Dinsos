@@ -119,4 +119,55 @@
     </form>
 </section>
 
+{{-- Notifikasi instan: peringatkan berkas yang melebihi 2 MB sebelum dikirim --}}
+<script>
+(function () {
+    const MAX_BYTES = 2 * 1024 * 1024; // 2 MB — selaras dengan validasi server
+    const form = document.querySelector('form[enctype="multipart/form-data"]');
+    if (!form) return;
+
+    const humanSize = (b) => b >= 1024 * 1024
+        ? (b / (1024 * 1024)).toFixed(1).replace(/\.0$/, '').replace('.', ',') + ' MB'
+        : Math.max(1, Math.round(b / 1024)) + ' KB';
+
+    function checkInput(input) {
+        let note = input.parentElement.querySelector('.file-too-large');
+        const tooBig = Array.from(input.files || []).filter(f => f.size > MAX_BYTES);
+
+        if (tooBig.length === 0) {
+            if (note) note.remove();
+            input.classList.remove('ring-2', 'ring-rose-400');
+            return true;
+        }
+
+        if (!note) {
+            note = document.createElement('p');
+            note.className = 'file-too-large mt-2 text-sm text-rose-600 font-medium';
+            input.parentElement.appendChild(note);
+        }
+        input.classList.add('ring-2', 'ring-rose-400', 'rounded-lg');
+        note.textContent = '⚠ ' + tooBig.map(f =>
+            `"${f.name}" (${humanSize(f.size)})`).join(', ') +
+            ' melebihi batas maksimal 2 MB. Mohon perkecil ukurannya.';
+        return false;
+    }
+
+    form.querySelectorAll('input[type="file"]').forEach(input => {
+        input.addEventListener('change', () => checkInput(input));
+    });
+
+    form.addEventListener('submit', (e) => {
+        let ok = true;
+        form.querySelectorAll('input[type="file"]').forEach(input => {
+            if (!checkInput(input)) ok = false;
+        });
+        if (!ok) {
+            e.preventDefault();
+            const first = form.querySelector('.file-too-large');
+            if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+    });
+})();
+</script>
+
 @endsection

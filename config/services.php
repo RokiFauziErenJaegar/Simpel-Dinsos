@@ -63,6 +63,11 @@ return [
         'webhook_token' => env('NOTIFICATION_WEBHOOK_TOKEN'),
     ],
 
+    // PIN e-sign Operator Pekon (Kepala Pekon) — JANGAN hardcode di kode.
+    'esign' => [
+        'pekon_pin' => env('ESIGN_PEKON_PIN'),
+    ],
+
     // Stub integrasi Dukcapil
     'dukcapil' => [
         'driver' => env('DUKCAPIL_DRIVER', 'mock'),

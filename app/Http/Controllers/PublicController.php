@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Application;
+use App\Models\Complaint;
 use App\Models\OutputDocument;
 use App\Models\QueueTicket;
 use App\Models\SatisfactionSurvey;
@@ -21,7 +22,9 @@ class PublicController extends Controller
         $stats = [
             'served_today' => QueueTicket::whereDate('ticket_date', $today)->where('status', 'done')->count(),
             'waiting' => QueueTicket::whereDate('ticket_date', $today)->where('status', 'waiting')->count(),
-            'completed_month' => Application::where('status', 'completed')->whereMonth('completed_at', now()->month)->count(),
+            'completed_month' => Application::where('status', 'completed')
+                ->whereBetween('completed_at', [now()->startOfMonth(), now()->endOfMonth()])
+                ->count(),
         ];
 
         $nowServing = QueueTicket::whereDate('ticket_date', $today)
@@ -45,7 +48,7 @@ class PublicController extends Controller
         $services = ServiceType::active()
             ->when($q, fn ($query) => $query->where(function ($qq) use ($q) {
                 $qq->where('name', 'like', "%{$q}%")
-                   ->orWhere('description', 'like', "%{$q}%");
+                    ->orWhere('description', 'like', "%{$q}%");
             }))
             ->when($bidang, fn ($query) => $query->where('bidang', $bidang))
             ->orderBy('order_no')
@@ -59,6 +62,7 @@ class PublicController extends Controller
     public function serviceShow(string $slug)
     {
         $service = ServiceType::active()->where('slug', $slug)->firstOrFail();
+
         return view('public.services.show', compact('service'));
     }
 
@@ -66,11 +70,16 @@ class PublicController extends Controller
     {
         $code = trim((string) $request->input('code'));
         $application = null;
+        $isOwner = false;
         if ($code) {
-            $application = Application::with(['serviceType', 'logs.user', 'queueTicket', 'documents', 'outputDocument'])
+            $application = Application::with(['serviceType', 'logs', 'queueTicket', 'outputDocument'])
                 ->where('code', $code)->first();
+            // Pemilik = warga yang login & merupakan pengaju. Detail sensitif (surat,
+            // catatan internal) hanya untuk pemilik — cegah IDOR via tebak kode.
+            $isOwner = $application && auth()->check() && auth()->id() === $application->applicant_user_id;
         }
-        return view('public.check-status', compact('code', 'application'));
+
+        return view('public.check-status', compact('code', 'application', 'isOwner'));
     }
 
     public function complaintCreate()
@@ -88,8 +97,8 @@ class PublicController extends Controller
             'is_anonymous' => 'sometimes|boolean',
         ]);
 
-        $complaint = \App\Models\Complaint::create([
-            'code' => \App\Models\Complaint::generateCode(),
+        $complaint = Complaint::create([
+            'code' => Complaint::generateCode(),
             'channel' => 'web',
             'subject' => $data['subject'],
             'content' => $data['content'],
@@ -130,11 +139,11 @@ class PublicController extends Controller
                 ->with('skm_required', 'Mohon isi Survei Kepuasan Masyarakat (SKM) di bawah ini terlebih dahulu. Setelah selesai, surat Anda otomatis dapat diunduh.');
         }
 
-        if (! $document->file_path || ! Storage::disk('public')->exists($document->file_path)) {
+        if (! $document->file_path || ! Storage::disk('secure')->exists($document->file_path)) {
             abort(404, 'Berkas surat tidak ditemukan.');
         }
 
-        return Storage::disk('public')->response(
+        return Storage::disk('secure')->response(
             $document->file_path,
             'surat-'.$application->code.'.pdf',
             ['Content-Type' => 'application/pdf'],

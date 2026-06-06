@@ -32,7 +32,7 @@ class SatisfactionSurveyController extends Controller
             'respondent_name' => 'nullable|string|max:150',
             'respondent_contact' => 'nullable|string|max:100',
         ];
-        foreach (['persyaratan','prosedur','waktu','biaya','produk','kompetensi','perilaku','sarana','penanganan_pengaduan'] as $u) {
+        foreach (['persyaratan', 'prosedur', 'waktu', 'biaya', 'produk', 'kompetensi', 'perilaku', 'sarana', 'penanganan_pengaduan'] as $u) {
             $rules[$u] = 'required|integer|min:1|max:5';
         }
 

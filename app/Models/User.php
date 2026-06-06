@@ -15,7 +15,7 @@ use Illuminate\Support\Facades\Crypt;
 
 class User extends Authenticatable implements FilamentUser
 {
-    use HasFactory, Notifiable, \Laravel\Sanctum\HasApiTokens;
+    use HasFactory, \Laravel\Sanctum\HasApiTokens, Notifiable;
 
     protected $fillable = [
         'name',
@@ -67,7 +67,9 @@ class User extends Authenticatable implements FilamentUser
 
     public function twoFactorRequired(): bool
     {
-        return in_array($this->role?->value, ['admin', 'kadis']);
+        // Semua peran internal (admin, kadis, sekretaris, kabid, kasi, petugas)
+        // wajib 2FA karena dapat melakukan aksi sensitif di panel.
+        return (bool) $this->role?->isInternal();
     }
 
     /**

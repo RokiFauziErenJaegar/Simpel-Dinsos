@@ -25,6 +25,7 @@ class SendApplicationNotificationJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
+
     public int $backoff = 10;
 
     public function __construct(
@@ -37,16 +38,23 @@ class SendApplicationNotificationJob implements ShouldQueue
     public function handle(NotificationGateway $gateway): void
     {
         $app = Application::with('applicant', 'serviceType')->find($this->applicationId);
-        if (! $app) return;
+        if (! $app) {
+            return;
+        }
 
         match ($this->type) {
             'submitted' => $gateway->sendApplicationSubmitted($app),
             'completed' => $this->documentId
                 ? $gateway->sendApplicationCompleted($app, OutputDocument::find($this->documentId))
                 : null,
-            'survey'    => $gateway->sendSurveyInvitation($app),
-            'status'    => $gateway->sendApplicationStatusUpdate($app, $this->note),
-            default     => null,
+            'survey' => $gateway->sendSurveyInvitation($app),
+            'status' => $gateway->sendApplicationStatusUpdate($app, $this->note),
+            default => null,
         };
+    }
+
+    public function failed(\Throwable $e): void
+    {
+        \Log::error('[SendApplicationNotificationJob] Gagal ('.$this->type.') app #'.$this->applicationId.': '.$e->getMessage());
     }
 }

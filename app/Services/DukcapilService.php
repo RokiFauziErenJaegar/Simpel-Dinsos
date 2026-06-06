@@ -17,7 +17,9 @@ use Illuminate\Support\Facades\Log;
 class DukcapilService
 {
     protected string $driver;
+
     protected ?string $baseUrl;
+
     protected ?string $token;
 
     public function __construct()
@@ -53,7 +55,9 @@ class DukcapilService
         $tglLahirRaw = substr($nik, 6, 6); // DDMMYY
         $day = (int) substr($tglLahirRaw, 0, 2);
         $isFemale = $day > 40;
-        if ($isFemale) $day -= 40;
+        if ($isFemale) {
+            $day -= 40;
+        }
         $month = (int) substr($tglLahirRaw, 2, 2);
         $year = (int) substr($tglLahirRaw, 4, 2);
         $year = $year < 30 ? 2000 + $year : 1900 + $year;
@@ -78,6 +82,7 @@ class DukcapilService
     {
         if (! $this->baseUrl || ! $this->token) {
             Log::warning('[DUKCAPIL] base_url/token belum dikonfigurasi, fallback mock.');
+
             return $this->lookupMock($nik);
         }
 
@@ -89,9 +94,11 @@ class DukcapilService
             if ($res->successful()) {
                 return array_merge(['found' => true, 'source' => 'dukcapil'], $res->json());
             }
+
             return ['found' => false, 'error' => 'NIK tidak ditemukan di pangkalan data Dukcapil.'];
         } catch (\Throwable $e) {
             Log::error('[DUKCAPIL] '.$e->getMessage());
+
             return ['found' => false, 'error' => 'Gangguan koneksi ke Dukcapil. Coba lagi nanti.'];
         }
     }

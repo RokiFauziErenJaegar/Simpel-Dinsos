@@ -4,12 +4,15 @@ namespace App\Http\Controllers;
 
 use App\Enums\ApplicationStatus;
 use App\Enums\UserRole;
+use App\Http\Controllers\Concerns\HandlesDocumentUploads;
+use App\Jobs\SendApplicationNotificationJob;
 use App\Models\Application;
 use App\Models\ApplicationDocument;
 use App\Models\ApplicationLog;
 use App\Models\QueueTicket;
 use App\Models\ServiceType;
 use App\Models\User;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
@@ -17,6 +20,8 @@ use Illuminate\Support\Facades\Hash;
 
 class OperatorPekonController extends Controller
 {
+    use HandlesDocumentUploads;
+
     public function dashboard(Request $request)
     {
         $operator = Auth::user();
@@ -47,12 +52,16 @@ class OperatorPekonController extends Controller
         if ($request->filled('service')) {
             $service = ServiceType::active()->where('slug', $request->input('service'))->first();
         }
+
         return view('public.pekon.create', compact('services', 'service'));
     }
 
     public function storeApplication(Request $request)
     {
         $operator = Auth::user();
+
+        $this->guardOversizedUploads($request);
+
         $data = $request->validate([
             'service_slug' => 'required|exists:service_types,slug',
             'beneficiary_name' => 'required|string|max:150',
@@ -62,11 +71,13 @@ class OperatorPekonController extends Controller
             'docs.*' => 'required|file|mimes:jpg,jpeg,png,pdf|max:2048',
             'pin' => 'required|string', // PIN e-sign Kepala Pekon
             'consent' => 'required|accepted',
-        ]);
+        ], $this->documentUploadMessages());
 
-        // Validasi PIN sederhana — di produksi pakai hash Pekon
-        if ($data['pin'] !== '123456') {
-            return back()->withErrors(['pin' => 'PIN e-sign tidak cocok.'])->withInput();
+        // PIN e-sign Kepala Pekon — diambil dari konfigurasi (ESIGN_PEKON_PIN),
+        // BUKAN hardcoded. Fail-closed bila belum dikonfigurasi.
+        $expectedPin = (string) config('services.esign.pekon_pin');
+        if ($expectedPin === '' || ! hash_equals($expectedPin, (string) $data['pin'])) {
+            return back()->withErrors(['pin' => 'PIN e-sign tidak cocok atau belum dikonfigurasi.'])->withInput();
         }
 
         $service = ServiceType::where('slug', $data['service_slug'])->firstOrFail();
@@ -109,15 +120,18 @@ class OperatorPekonController extends Controller
                         'meta' => ['submitted_by_operator' => $operator->id, 'esign_pin_verified' => true],
                     ]);
                     break;
-                } catch (\Illuminate\Database\UniqueConstraintViolationException $e) {
-                    if ($attempts >= 3) throw $e;
+                } catch (UniqueConstraintViolationException $e) {
+                    if ($attempts >= 3) {
+                        throw $e;
+                    }
                     usleep(50000);
                 }
             } while ($attempts < 3);
             $application->update(['sla_due_at' => $application->calculateSlaDueAt()]);
 
             foreach ($request->file('docs', []) as $idx => $file) {
-                $path = $file->store('applications/'.$application->id, 'public');
+                // Berkas sensitif (KTP/KK) WAJIB ke disk 'secure', konsisten dgn jalur warga.
+                $path = $file->store('applications/'.$application->id, 'secure');
                 ApplicationDocument::create([
                     'application_id' => $application->id,
                     'type' => 'berkas_'.$idx,
@@ -129,12 +143,10 @@ class OperatorPekonController extends Controller
                 ]);
             }
 
-            QueueTicket::create([
+            QueueTicket::createNext([
                 'application_id' => $application->id,
-                'ticket_number' => $this->generateTicketNumber('P'),
-                'ticket_date' => today()->toDateString(),
                 'status' => 'waiting',
-            ]);
+            ], 'P');
 
             ApplicationLog::create([
                 'application_id' => $application->id,
@@ -148,17 +160,9 @@ class OperatorPekonController extends Controller
         });
 
         // Push ke queue worker
-        \App\Jobs\SendApplicationNotificationJob::dispatch($application->id, 'submitted');
+        SendApplicationNotificationJob::dispatch($application->id, 'submitted');
 
         return redirect()->route('pekon.dashboard')->with('success',
             'Pengajuan '.$application->code.' berhasil diajukan atas nama '.$application->beneficiary_name);
-    }
-
-    protected function generateTicketNumber(string $prefix): string
-    {
-        $count = QueueTicket::whereDate('ticket_date', today())
-            ->where('ticket_number', 'like', $prefix.'-%')
-            ->count() + 1;
-        return sprintf('%s-%03d', $prefix, $count);
     }
 }

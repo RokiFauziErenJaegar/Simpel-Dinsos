@@ -22,13 +22,14 @@ class KadisOverview extends StatsOverviewWidget
     {
         // Cache 60 detik — ringkasan tidak perlu real-time, dipakai untuk laporan.
         $s = Cache::remember('kadis.overview.v2', 60, function () {
-            $month = now()->month;
-            $year = now()->year;
+            // Rentang bulan berjalan — pakai whereBetween agar index pada
+            // submitted_at terpakai (sargable), bukan whereMonth/whereYear.
+            $start = now()->startOfMonth();
+            $end = now()->endOfMonth();
 
-            $totalMonth = Application::whereMonth('submitted_at', $month)->whereYear('submitted_at', $year)->count();
-            $completed = Application::whereMonth('submitted_at', $month)->whereYear('submitted_at', $year)->where('status', 'completed')->count();
-            $onTime = Application::whereMonth('submitted_at', $month)
-                ->whereYear('submitted_at', $year)
+            $totalMonth = Application::whereBetween('submitted_at', [$start, $end])->count();
+            $completed = Application::whereBetween('submitted_at', [$start, $end])->where('status', 'completed')->count();
+            $onTime = Application::whereBetween('submitted_at', [$start, $end])
                 ->where('status', 'completed')
                 ->whereColumn('completed_at', '<=', 'sla_due_at')
                 ->count();
@@ -37,8 +38,7 @@ class KadisOverview extends StatsOverviewWidget
             // Rata-rata waktu penyelesaian sebagai % dari batas waktu SLA.
             // Per pengajuan selesai: (submitted→completed) / (submitted→sla_due) × 100.
             // < 100% = rata-rata lebih cepat dari SLA; > 100% = melebihi SLA.
-            $finished = Application::whereMonth('submitted_at', $month)
-                ->whereYear('submitted_at', $year)
+            $finished = Application::whereBetween('submitted_at', [$start, $end])
                 ->where('status', 'completed')
                 ->whereNotNull('completed_at')
                 ->whereNotNull('sla_due_at')
@@ -70,8 +70,8 @@ class KadisOverview extends StatsOverviewWidget
         });
 
         ['totalMonth' => $totalMonth, 'completed' => $completed, 'onTimePct' => $onTimePct,
-         'avgTimePct' => $avgTimePct, 'avgActualMinutes' => $avgActualMinutes,
-         'activeComplaints' => $activeComplaints, 'servedToday' => $servedToday, 'overdue' => $overdue] = $s;
+            'avgTimePct' => $avgTimePct, 'avgActualMinutes' => $avgActualMinutes,
+            'activeComplaints' => $activeComplaints, 'servedToday' => $servedToday, 'overdue' => $overdue] = $s;
 
         // Format ringkas durasi rata-rata untuk deskripsi.
         $avgTimeHuman = $avgActualMinutes <= 0 ? '—'

@@ -23,12 +23,15 @@ class WebPushService
 
     protected function client(): ?WebPush
     {
-        if ($this->client) return $this->client;
+        if ($this->client) {
+            return $this->client;
+        }
 
         $public = config('services.push.vapid_public_key');
         $private = config('services.push.vapid_private_key');
         if (! $public || ! $private) {
             Log::warning('[WebPush] VAPID key belum di-set, push diabaikan.');
+
             return null;
         }
 
@@ -54,10 +57,14 @@ class WebPushService
     public function sendToUser(User $user, string $title, string $body, ?string $url = null): int
     {
         $client = $this->client();
-        if (! $client) return 0;
+        if (! $client) {
+            return 0;
+        }
 
         $subs = PushSubscription::where('user_id', $user->id)->get();
-        if ($subs->isEmpty()) return 0;
+        if ($subs->isEmpty()) {
+            return 0;
+        }
 
         $payload = json_encode([
             'title' => $title,
@@ -95,7 +102,9 @@ class WebPushService
     public function broadcast(string $title, string $body, ?string $url = null): int
     {
         $client = $this->client();
-        if (! $client) return 0;
+        if (! $client) {
+            return 0;
+        }
 
         $payload = json_encode([
             'title' => $title,

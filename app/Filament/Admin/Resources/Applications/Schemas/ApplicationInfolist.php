@@ -68,6 +68,33 @@ class ApplicationInfolist
                         ->columns(4),
                 ]),
 
+            Section::make('Dokumen Terbitan')
+                ->columnSpanFull()
+                ->columns(3)
+                ->visible(fn ($record) => $record->outputDocument !== null)
+                ->schema([
+                    TextEntry::make('outputDocument.document_number')
+                        ->label('Nomor Surat')
+                        ->copyable()
+                        ->weight('bold'),
+                    TextEntry::make('outputDocument.signed_at')
+                        ->label('Ditandatangani')
+                        ->dateTime('d M Y H:i')
+                        ->placeholder('—'),
+                    TextEntry::make('outputDocument.signedBy.name')
+                        ->label('Penanda Tangan')
+                        ->placeholder('—'),
+                    TextEntry::make('outputDocument.file_path')
+                        ->label('Surat Terbit')
+                        ->badge()
+                        ->color('success')
+                        ->formatStateUsing(fn ($state) => $state ? '📄 Buka / Unduh PDF' : '—')
+                        ->url(fn ($record) => $record->outputDocument
+                            ? route('output.file', ['docId' => $record->outputDocument->id])
+                            : null, shouldOpenInNewTab: true)
+                        ->columnSpanFull(),
+                ]),
+
             Section::make('Timeline / Log')
                 ->columnSpanFull()
                 ->schema([

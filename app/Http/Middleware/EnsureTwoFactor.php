@@ -32,6 +32,7 @@ class EnsureTwoFactor
             if ($request->expectsJson()) {
                 return response()->json(['error' => '2FA setup required.', 'setup_url' => route('two-factor.show')], 403);
             }
+
             return redirect()->route('two-factor.show')->with('success',
                 'Akun '.$user->role->label().' wajib mengaktifkan 2FA. Selesaikan setup di bawah ini.');
         }
@@ -39,6 +40,7 @@ class EnsureTwoFactor
         // Sudah enable tapi belum verifikasi di sesi ini → paksa challenge
         if (! $request->session()->get('2fa.verified')) {
             $request->session()->put('2fa.user_id', $user->id);
+
             return redirect()->route('two-factor.challenge');
         }
 

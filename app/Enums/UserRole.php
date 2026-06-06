@@ -36,4 +36,22 @@ enum UserRole: string
     {
         return $this !== self::Warga;
     }
+
+    /** Boleh memverifikasi / mengembalikan pengajuan (staf pemroses). */
+    public function canVerifyApplication(): bool
+    {
+        return in_array($this, [self::Admin, self::Kadis, self::Sekretaris, self::Kabid, self::Kasi, self::Petugas]);
+    }
+
+    /** Boleh menolak pengajuan (pengambil keputusan, bukan loket). */
+    public function canDecideApplication(): bool
+    {
+        return in_array($this, [self::Admin, self::Kadis, self::Sekretaris, self::Kabid, self::Kasi]);
+    }
+
+    /** Boleh menerbitkan surat resmi (kewenangan tanda tangan). */
+    public function canIssueDocument(): bool
+    {
+        return in_array($this, [self::Admin, self::Kadis, self::Sekretaris]);
+    }
 }

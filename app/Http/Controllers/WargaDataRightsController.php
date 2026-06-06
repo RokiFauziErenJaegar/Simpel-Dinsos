@@ -4,9 +4,9 @@ namespace App\Http\Controllers;
 
 use App\Models\Application;
 use App\Models\DataAccessLog;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Storage;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 
 /**
@@ -20,6 +20,7 @@ class WargaDataRightsController extends Controller
     public function showDataRights()
     {
         $user = Auth::user();
+
         return view('public.warga.data-rights', ['user' => $user]);
     }
 
@@ -91,7 +92,7 @@ class WargaDataRightsController extends Controller
         $request->session()->regenerateToken();
 
         // Soft-delete user
-        \App\Models\User::where('id', $userId)->delete();
+        User::where('id', $userId)->delete();
 
         return redirect()->route('home')->with('success',
             'Permintaan penghapusan data berhasil. Data Anda akan dihapus permanen dalam 30 hari sesuai SOP retensi. '

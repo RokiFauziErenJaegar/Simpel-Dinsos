@@ -49,6 +49,7 @@ class MonthlyReportGenerator
                 $done = $apps->where('status.value', 'completed')->count();
                 $ontime = $apps->filter(fn ($a) => $a->status?->value === 'completed' && $a->completed_at && $a->sla_due_at && $a->completed_at->lte($a->sla_due_at))->count();
                 $pct = $done > 0 ? round(($ontime / $done) * 100) : null;
+
                 return [
                     'code' => $s->code,
                     'name' => $s->name,
@@ -95,7 +96,7 @@ class MonthlyReportGenerator
             $parts[] = "Indeks Kepuasan Masyarakat tercatat {$skm}/100 (kategori {$kategori}) berdasarkan survei pasca-layanan otomatis sesuai Permenpan RB 14/2017.";
         }
 
-        $parts[] = "Layanan terus dijalankan secara digital end-to-end, dari pendaftaran online, verifikasi berkas, hingga penerbitan surat ber-QR — sejalan dengan moto Dinsos Pringsewu: Cepat, Adaptif, Responsif, dan Empati.";
+        $parts[] = 'Layanan terus dijalankan secara digital end-to-end, dari pendaftaran online, verifikasi berkas, hingga penerbitan surat ber-QR — sejalan dengan moto Dinsos Pringsewu: Cepat, Adaptif, Responsif, dan Empati.';
 
         return implode("\n\n", $parts);
     }

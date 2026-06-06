@@ -46,7 +46,8 @@ cd /app
 # 4. Migrasi & seed — HANYA jalan di service web (queue/scheduler skip)
 if [ "$ROLE" = "web" ] && [ -n "$DB_HOST" ] && [ "$DB_CONNECTION" != "sqlite" ]; then
     echo "[entrypoint] Running migrations..."
-    php artisan migrate --force --no-interaction || echo "[entrypoint] migrate warning"
+    # Gagalkan boot bila migrasi error — jangan jalan dengan skema setengah.
+    php artisan migrate --force --no-interaction || { echo "[entrypoint] FATAL: migrate gagal"; exit 1; }
 
     USER_COUNT=$(php -r "
         try {

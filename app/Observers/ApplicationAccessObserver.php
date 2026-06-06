@@ -22,7 +22,9 @@ class ApplicationAccessObserver
 
         if (static::$shouldLog === null) {
             static::$shouldLog = $this->resolveShouldLog();
-            if (! static::$shouldLog) return;
+            if (! static::$shouldLog) {
+                return;
+            }
         }
 
         DataAccessLog::record(
@@ -42,7 +44,9 @@ class ApplicationAccessObserver
     protected function resolveShouldLog(): bool
     {
         $req = request();
-        if (! $req) return false;
+        if (! $req) {
+            return false;
+        }
 
         $route = $req->route()?->getName() ?? '';
         // Skip list, table livewire, json api
@@ -55,7 +59,9 @@ class ApplicationAccessObserver
         }
 
         $user = $req->user();
-        if (! $user) return false;
+        if (! $user) {
+            return false;
+        }
 
         return method_exists($user, 'isWarga') ? ! $user->isWarga() : false;
     }

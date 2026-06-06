@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Enums\ApplicationStatus;
+use App\Http\Controllers\Concerns\HandlesDocumentUploads;
 use App\Jobs\SendApplicationNotificationJob;
 use App\Models\Application;
 use App\Models\ApplicationDocument;
@@ -22,6 +23,8 @@ use Illuminate\Validation\ValidationException;
  */
 class ApplicationResubmitController extends Controller
 {
+    use HandlesDocumentUploads;
+
     public function edit(string $code)
     {
         $application = $this->resolveOwnedReturned($code);
@@ -40,6 +43,8 @@ class ApplicationResubmitController extends Controller
         $application = $this->resolveOwnedReturned($code);
         $application->load(['serviceType', 'documents']);
 
+        $this->guardOversizedUploads($request);
+
         $data = $request->validate([
             'beneficiary_name' => 'required|string|max:150',
             'beneficiary_nik' => 'nullable|string|size:16',
@@ -50,7 +55,7 @@ class ApplicationResubmitController extends Controller
             'new_docs' => 'array',
             'new_docs.*' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',
             'new_doc_labels' => 'array',
-        ]);
+        ], $this->documentUploadMessages());
 
         $replaceFiles = $request->file('replace_docs', []);
         $newFiles = $request->file('new_docs', []);
@@ -89,9 +94,13 @@ class ApplicationResubmitController extends Controller
 
             // Ganti berkas (hapus file lama di disk secure → simpan baru → reset validasi).
             foreach ($replaceFiles as $docId => $file) {
-                if (! $file) continue;
+                if (! $file) {
+                    continue;
+                }
                 $doc = $application->documents->firstWhere('id', (int) $docId);
-                if (! $doc) continue;
+                if (! $doc) {
+                    continue;
+                }
                 if ($doc->file_path) {
                     Storage::disk('secure')->delete($doc->file_path);
                 }
@@ -108,7 +117,9 @@ class ApplicationResubmitController extends Controller
 
             // Berkas tambahan baru.
             foreach ($newFiles as $key => $file) {
-                if (! $file) continue;
+                if (! $file) {
+                    continue;
+                }
                 $path = $file->store('applications/'.$application->id, 'secure');
                 ApplicationDocument::create([
                     'application_id' => $application->id,

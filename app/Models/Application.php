@@ -13,7 +13,7 @@ use Illuminate\Support\Carbon;
 
 class Application extends Model
 {
-    use SoftDeletes, BelongsToTenant;
+    use BelongsToTenant, SoftDeletes;
 
     protected $fillable = [
         'code', 'service_type_id', 'applicant_user_id', 'current_handler_id',
@@ -38,10 +38,15 @@ class Application extends Model
     /** Maskar NIK untuk tampilan (mis. 187103********0001) */
     public function getBeneficiaryNikMaskedAttribute(): ?string
     {
-        if (! $this->beneficiary_nik) return null;
+        if (! $this->beneficiary_nik) {
+            return null;
+        }
         $nik = $this->beneficiary_nik;
-        if (strlen($nik) < 16) return $nik;
-        return substr($nik, 0, 6) . str_repeat('*', 6) . substr($nik, -4);
+        if (strlen($nik) < 16) {
+            return $nik;
+        }
+
+        return substr($nik, 0, 6).str_repeat('*', 6).substr($nik, -4);
     }
 
     public function serviceType(): BelongsTo
@@ -84,6 +89,7 @@ class Application extends Model
         if (! $this->sla_due_at || $this->status->isFinal()) {
             return false;
         }
+
         return $this->sla_due_at->isPast();
     }
 
@@ -95,6 +101,7 @@ class Application extends Model
         $end = $this->status->isFinal() ? ($this->completed_at ?? now()) : now();
         $total = $this->submitted_at->diffInMinutes($this->sla_due_at);
         $elapsed = $this->submitted_at->diffInMinutes($end);
+
         return $total > 0 ? min(100, ($elapsed / $total) * 100) : 0;
     }
 
@@ -129,6 +136,7 @@ class Application extends Model
     public function calculateSlaDueAt(): Carbon
     {
         $minutes = $this->serviceType->sla_minutes ?? 1440;
+
         return $this->submitted_at->copy()->addMinutes($minutes);
     }
 
@@ -146,10 +154,16 @@ class Application extends Model
 
         foreach ($this->documents as $doc) {
             $review = $reviews->firstWhere('document_id', (string) $doc->id);
-            $invalid = $review && ($review['invalid'] ?? false);
 
+            // Berkas yang TIDAK ada di form review tidak ditinjau pada aksi ini →
+            // biarkan state-nya apa adanya (null=pending). Jangan paksa jadi valid.
+            if (! $review) {
+                continue;
+            }
+
+            $invalid = (bool) ($review['invalid'] ?? false);
             $doc->update([
-                'is_validated' => $invalid ? false : true,
+                'is_validated' => ! $invalid,
                 'notes' => $invalid ? ($review['note'] ?? null) : null,
             ]);
         }

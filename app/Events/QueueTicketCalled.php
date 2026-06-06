@@ -20,7 +20,9 @@ class QueueTicketCalled implements ShouldBroadcastNow
     use Dispatchable, InteractsWithSockets, SerializesModels;
 
     public string $ticketNumber;
+
     public ?string $counter;
+
     public ?string $beneficiaryName;
 
     public function __construct(QueueTicket $ticket)

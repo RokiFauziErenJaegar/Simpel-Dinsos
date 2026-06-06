@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\PushSubscription;
+use App\Services\WebPushService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -52,10 +53,10 @@ class PwaController extends Controller
             return response()->json(['error' => 'Login dulu untuk test push dari server.'], 401);
         }
 
-        $sent = app(\App\Services\WebPushService::class)->sendToUser(
+        $sent = app(WebPushService::class)->sendToUser(
             $user,
             'SIMPEL DINSOS — Server Push',
-            'Notifikasi dari server berhasil. Push real berfungsi bahkan saat tab tertutup. ' . now()->translatedFormat('H:i:s'),
+            'Notifikasi dari server berhasil. Push real berfungsi bahkan saat tab tertutup. '.now()->translatedFormat('H:i:s'),
             route('warga.dashboard'),
         );
 
