@@ -23,6 +23,7 @@ class SendOtpJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
+
     public int $backoff = 10;
 
     public function __construct(
@@ -33,5 +34,10 @@ class SendOtpJob implements ShouldQueue
     public function handle(NotificationGateway $gateway): void
     {
         $gateway->sendOtp($this->contact, $this->code);
+    }
+
+    public function failed(\Throwable $e): void
+    {
+        \Log::error('[SendOtpJob] Gagal kirim OTP ke '.$this->contact.': '.$e->getMessage());
     }
 }

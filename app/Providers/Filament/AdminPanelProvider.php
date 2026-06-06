@@ -2,7 +2,9 @@
 
 namespace App\Providers\Filament;
 
+use App\Filament\Admin\Widgets\KadisOverview;
 use App\Http\Middleware\AuthenticateAdminPanel;
+use App\Http\Middleware\EnsureTwoFactor;
 use Filament\Http\Middleware\AuthenticateSession;
 use Filament\Http\Middleware\DisableBladeIconComponents;
 use Filament\Http\Middleware\DispatchServingFilamentEvent;
@@ -10,7 +12,6 @@ use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
-use App\Filament\Admin\Widgets\KadisOverview;
 use Filament\Widgets\AccountWidget;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
@@ -65,7 +66,7 @@ class AdminPanelProvider extends PanelProvider
                 // Subclass Authenticate: warga/akun tanpa akses di-redirect rapi,
                 // bukan 403 Forbidden. Lihat AuthenticateAdminPanel.
                 AuthenticateAdminPanel::class,
-                \App\Http\Middleware\EnsureTwoFactor::class,
+                EnsureTwoFactor::class,
             ]);
     }
 }

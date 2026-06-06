@@ -11,7 +11,7 @@ class TwoFactorService
 
     public function __construct()
     {
-        $this->g = new Google2FA();
+        $this->g = new Google2FA;
     }
 
     public function generateSecret(): string
@@ -24,6 +24,7 @@ class TwoFactorService
         // Standar otpauth:// URL untuk Google Authenticator / Authy
         $issuer = rawurlencode('SIMPEL DINSOS');
         $account = rawurlencode($user->email);
+
         return "otpauth://totp/{$issuer}:{$account}?secret={$secret}&issuer={$issuer}";
     }
 
@@ -38,6 +39,7 @@ class TwoFactorService
         for ($i = 0; $i < $count; $i++) {
             $codes[] = strtoupper(bin2hex(random_bytes(4))).'-'.strtoupper(bin2hex(random_bytes(4)));
         }
+
         return $codes;
     }
 }

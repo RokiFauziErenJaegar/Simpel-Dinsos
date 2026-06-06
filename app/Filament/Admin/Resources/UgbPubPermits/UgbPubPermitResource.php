@@ -15,6 +15,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\Cache;
 
 class UgbPubPermitResource extends Resource
 {
@@ -34,7 +35,7 @@ class UgbPubPermitResource extends Resource
 
     public static function getNavigationBadge(): ?string
     {
-        return (string) \Illuminate\Support\Facades\Cache::remember(
+        return (string) Cache::remember(
             'nav.badge.ugb',
             60,
             fn () => UgbPubPermit::where('status', 'diajukan')->count()

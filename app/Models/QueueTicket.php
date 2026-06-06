@@ -2,8 +2,10 @@
 
 namespace App\Models;
 
+use App\Events\QueueTicketCalled;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 
 class QueueTicket extends Model
@@ -71,6 +73,33 @@ class QueueTicket extends Model
     }
 
     /**
+     * Buat tiket dengan nomor berurutan secara AMAN dari race condition.
+     * Karena ada UNIQUE(ticket_number, ticket_date), dua proses bersamaan bisa
+     * menghitung nomor sama → satu insert akan melanggar UNIQUE. Kita retry
+     * menghitung ulang nomor sampai berhasil (maks 5x).
+     */
+    public static function createNext(array $attributes, ?string $prefix = 'A', ?Carbon $date = null): self
+    {
+        $date ??= now();
+        $attempts = 0;
+
+        do {
+            $attempts++;
+            try {
+                return static::create(array_merge($attributes, [
+                    'ticket_number' => static::nextNumber($prefix, $date),
+                    'ticket_date' => $date->format('Y-m-d'),
+                ]));
+            } catch (UniqueConstraintViolationException $e) {
+                if ($attempts >= 5) {
+                    throw $e;
+                }
+                usleep(random_int(20000, 80000)); // 20-80ms jitter
+            }
+        } while ($attempts < 5);
+    }
+
+    /**
      * Tandai tiket sebagai sedang dilayani + broadcast event ke TV lobi.
      *
      * Dispatch event di-defer ke afterResponse — jadi tetap dikirim ke Reverb,
@@ -91,7 +120,7 @@ class QueueTicket extends Model
             try {
                 $ticket = static::find($ticketId);
                 if ($ticket) {
-                    \App\Events\QueueTicketCalled::dispatch($ticket);
+                    QueueTicketCalled::dispatch($ticket);
                 }
             } catch (\Throwable $e) {
                 \Log::warning('Broadcast QueueTicketCalled gagal: '.$e->getMessage());

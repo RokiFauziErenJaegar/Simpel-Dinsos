@@ -6,6 +6,7 @@ use App\Models\Application;
 use App\Models\OutputDocument;
 use App\Models\User;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Storage;
 use SimpleSoftwareIO\QrCode\Facades\QrCode;
 
@@ -13,8 +14,12 @@ class DocumentGeneratorHelpers
 {
     public static function fileToBase64(?string $relativePath): ?string
     {
-        if (! $relativePath) return null;
-        if (! Storage::disk('public')->exists($relativePath)) return null;
+        if (! $relativePath) {
+            return null;
+        }
+        if (! Storage::disk('public')->exists($relativePath)) {
+            return null;
+        }
         $contents = Storage::disk('public')->get($relativePath);
         $mime = match (true) {
             str_ends_with($relativePath, '.svg') => 'image/svg+xml',
@@ -22,6 +27,7 @@ class DocumentGeneratorHelpers
             str_ends_with($relativePath, '.jpg'), str_ends_with($relativePath, '.jpeg') => 'image/jpeg',
             default => 'image/png',
         };
+
         return 'data:'.$mime.';base64,'.base64_encode($contents);
     }
 }
@@ -38,37 +44,53 @@ class DocumentGenerator
         app(SignatureAssetGenerator::class)->ensureDefaults($signer);
 
         $token = bin2hex(random_bytes(20));
-        $docNumber = $this->nextDocumentNumber($application);
-
-        // QR berisi URL verifikasi publik
         $verifyUrl = route('document.verify', ['token' => $token]);
         $qrSvg = base64_encode(QrCode::format('svg')->size(120)->margin(0)->generate($verifyUrl));
-
         $view = $template ?? 'documents.surat-generic';
-        $pdf = Pdf::loadView($view, [
-            'app' => $application->loadMissing(['serviceType', 'applicant', 'documents']),
-            'service' => $application->serviceType,
-            'signer' => $signer,
-            'docNumber' => $docNumber,
-            'verifyUrl' => $verifyUrl,
-            'qrSvg' => $qrSvg,
-            'signatureDataUri' => DocumentGeneratorHelpers::fileToBase64($signer->signature_path),
-            'stampDataUri' => DocumentGeneratorHelpers::fileToBase64($signer->stamp_path),
-        ])->setPaper('a4');
 
-        $filename = sprintf('surat-%s.pdf', strtolower(str_replace('/', '_', $docNumber)));
-        $relativePath = "documents/{$application->id}/{$filename}";
-        Storage::disk('public')->put($relativePath, $pdf->output());
+        // Nomor surat UNIQUE → dua penerbitan bersamaan bisa bentrok. Render + simpan
+        // + insert dibungkus retry: bila nomor bentrok, hapus file & ulang dgn nomor baru.
+        $document = null;
+        $attempts = 0;
+        do {
+            $attempts++;
+            $docNumber = $this->nextDocumentNumber($application);
 
-        $document = OutputDocument::create([
-            'application_id' => $application->id,
-            'document_number' => $docNumber,
-            'file_path' => $relativePath,
-            'verification_token' => $token,
-            'signed_by_user_id' => $signer->id,
-            'signed_at' => now(),
-            'file_hash' => hash('sha256', $pdf->output()),
-        ]);
+            $pdf = Pdf::loadView($view, [
+                'app' => $application->loadMissing(['serviceType', 'applicant', 'documents']),
+                'service' => $application->serviceType,
+                'signer' => $signer,
+                'docNumber' => $docNumber,
+                'verifyUrl' => $verifyUrl,
+                'qrSvg' => $qrSvg,
+                'signatureDataUri' => DocumentGeneratorHelpers::fileToBase64($signer->signature_path),
+                'stampDataUri' => DocumentGeneratorHelpers::fileToBase64($signer->stamp_path),
+            ])->setPaper('a4');
+
+            $filename = sprintf('surat-%s.pdf', strtolower(str_replace('/', '_', $docNumber)));
+            $relativePath = "documents/{$application->id}/{$filename}";
+            $output = $pdf->output();
+            // Surat resmi berisi data pribadi/NIK → disk 'secure' (private).
+            Storage::disk('secure')->put($relativePath, $output);
+
+            try {
+                $document = OutputDocument::create([
+                    'application_id' => $application->id,
+                    'document_number' => $docNumber,
+                    'file_path' => $relativePath,
+                    'verification_token' => $token,
+                    'signed_by_user_id' => $signer->id,
+                    'signed_at' => now(),
+                    'file_hash' => hash('sha256', $output),
+                ]);
+            } catch (UniqueConstraintViolationException $e) {
+                Storage::disk('secure')->delete($relativePath); // bersihkan file yatim
+                if ($attempts >= 5) {
+                    throw $e;
+                }
+                usleep(random_int(20000, 80000));
+            }
+        } while ($document === null && $attempts < 5);
 
         // TTE BSrE opsional — aktifkan via BSRE_ENABLED=true di .env
         if (config('services.bsre.enabled')) {

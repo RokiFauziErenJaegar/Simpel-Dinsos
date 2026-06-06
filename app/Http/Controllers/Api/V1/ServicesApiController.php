@@ -26,12 +26,14 @@ class ServicesApiController extends Controller
     public function show(string $slug): JsonResponse
     {
         $service = ServiceType::active()->where('slug', $slug)->firstOrFail();
+
         return response()->json($service);
     }
 
     public function queueStatus(): JsonResponse
     {
         $today = today();
+
         return response()->json([
             'now_serving' => QueueTicket::whereDate('ticket_date', $today)
                 ->where('status', 'serving')
@@ -49,10 +51,10 @@ class ServicesApiController extends Controller
             ->applications()
             ->with(['serviceType:id,code,name,sla_display', 'queueTicket', 'outputDocument'])
             ->latest()
-            ->get();
+            ->paginate(20);
 
         return response()->json([
-            'data' => $apps->map(fn ($a) => [
+            'data' => collect($apps->items())->map(fn ($a) => [
                 'code' => $a->code,
                 'service_code' => $a->serviceType->code,
                 'service_name' => $a->serviceType->name,
@@ -67,6 +69,12 @@ class ServicesApiController extends Controller
                     ? route('document.verify', ['token' => $a->outputDocument->verification_token])
                     : null,
             ]),
+            'meta' => [
+                'current_page' => $apps->currentPage(),
+                'last_page' => $apps->lastPage(),
+                'per_page' => $apps->perPage(),
+                'total' => $apps->total(),
+            ],
         ]);
     }
 
@@ -76,10 +84,21 @@ class ServicesApiController extends Controller
             ->where('code', $code)
             ->firstOrFail();
 
+        // Endpoint PUBLIK (by code) → JANGAN bocorkan data sensitif: nama disamarkan,
+        // catatan internal & token unduh surat tidak diekspos (cegah IDOR via tebak kode).
+        $maskName = function (?string $name) {
+            if (! $name) {
+                return null;
+            }
+            $parts = preg_split('/\s+/', trim($name));
+
+            return collect($parts)->map(fn ($p) => mb_substr($p, 0, 1).str_repeat('*', max(1, mb_strlen($p) - 1)))->implode(' ');
+        };
+
         return response()->json([
             'code' => $app->code,
             'service' => $app->serviceType->only(['code', 'name', 'sla_display']),
-            'beneficiary' => $app->beneficiary_name,
+            'beneficiary' => $maskName($app->beneficiary_name),
             'status' => $app->status?->value,
             'status_label' => $app->status?->label(),
             'submitted_at' => $app->submitted_at,
@@ -90,11 +109,9 @@ class ServicesApiController extends Controller
                 'time' => $l->created_at,
                 'action' => $l->action,
                 'to_status' => $l->to_status,
-                'notes' => $l->notes,
             ]),
             'output' => $app->outputDocument ? [
                 'number' => $app->outputDocument->document_number,
-                'verify_url' => route('document.verify', ['token' => $app->outputDocument->verification_token]),
                 'signed_at' => $app->outputDocument->signed_at,
             ] : null,
         ]);

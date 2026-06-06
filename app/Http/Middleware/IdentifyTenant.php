@@ -41,6 +41,7 @@ class IdentifyTenant
                 if (! $t && $headerTenant) {
                     $t = Tenant::where('slug', $headerTenant)->where('is_active', true)->first();
                 }
+
                 return $t;
             });
 

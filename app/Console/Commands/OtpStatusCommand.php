@@ -89,6 +89,7 @@ class OtpStatusCommand extends Command
             $this->line('  1. Daftar di https://fonnte.com');
             $this->line('  2. Dashboard → Device → Add Device → scan QR');
             $this->line('  3. Copy token, paste ke .env');
+
             return;
         }
 
@@ -127,6 +128,7 @@ class OtpStatusCommand extends Command
 
         if (! $token) {
             $this->error('✗ WABLAS_TOKEN belum di-set di .env');
+
             return;
         }
         $this->line('Token: <fg=cyan>'.substr($token, 0, 8).'••••</>');
@@ -140,6 +142,7 @@ class OtpStatusCommand extends Command
 
         if (! $token || ! $phoneId) {
             $this->error('✗ WHATSAPP_TOKEN atau WHATSAPP_PHONE_ID belum di-set');
+
             return;
         }
         $this->line('Phone ID: <fg=cyan>'.$phoneId.'</>');

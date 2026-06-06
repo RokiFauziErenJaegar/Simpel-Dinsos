@@ -4,7 +4,6 @@ namespace App\Console\Commands;
 
 use App\Services\NotificationGateway;
 use Illuminate\Console\Command;
-use Illuminate\Support\Facades\Http;
 
 /**
  * Test gateway OTP secara langsung. Pakai untuk verifikasi setup
@@ -59,6 +58,7 @@ class OtpTestCommand extends Command
 
         if ($driver === 'fonnte' && ! config('services.notifications.fonnte_token')) {
             $this->error('✗ FONNTE_TOKEN belum di-set di .env!');
+
             return self::FAILURE;
         }
 
@@ -94,6 +94,7 @@ class OtpTestCommand extends Command
             $this->newLine();
             $this->line('Stack trace:');
             $this->line($e->getTraceAsString());
+
             return self::FAILURE;
         }
     }

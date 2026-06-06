@@ -43,6 +43,7 @@ class UgbPubPermit extends Model
     {
         $year = now()->format('Y');
         $count = static::where('type', $type)->whereYear('created_at', $year)->count() + 1;
+
         return sprintf('%s/%03d/D.04/%s', $type, $count, $year);
     }
 }

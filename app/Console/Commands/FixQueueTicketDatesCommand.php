@@ -33,6 +33,7 @@ class FixQueueTicketDatesCommand extends Command
 
         if ($affected->isEmpty()) {
             $this->info('✓ Tidak ada baris ticket_date yang perlu dinormalisasi.');
+
             return self::SUCCESS;
         }
 

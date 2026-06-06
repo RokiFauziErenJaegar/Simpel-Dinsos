@@ -27,8 +27,11 @@ use Illuminate\Support\Facades\Storage;
 class BsreService
 {
     protected string $driver;
+
     protected ?string $baseUrl;
+
     protected ?string $user;
+
     protected ?string $pass;
 
     public function __construct()
@@ -45,7 +48,7 @@ class BsreService
      */
     public function sign(OutputDocument $document, User $signer, ?string $passphrase = null): string
     {
-        $disk = Storage::disk('public');
+        $disk = Storage::disk('secure');
         if (! $disk->exists($document->file_path)) {
             throw new \RuntimeException("PDF tidak ditemukan: {$document->file_path}");
         }
@@ -59,7 +62,7 @@ class BsreService
     protected function signMock(OutputDocument $document, User $signer): string
     {
         // Mode demo: tambah metadata XMP sederhana ke PDF + suffix nama file
-        $disk = Storage::disk('public');
+        $disk = Storage::disk('secure');
         $contents = $disk->get($document->file_path);
 
         // Tandai PDF dengan metadata "Signed by BSrE-MOCK"
@@ -87,11 +90,12 @@ class BsreService
     {
         if (! $this->baseUrl || ! $this->user || ! $this->pass || ! $passphrase) {
             Log::warning('[BSRE] Kredensial belum lengkap, fallback ke mock.');
+
             return $this->signMock($document, $signer);
         }
 
         try {
-            $disk = Storage::disk('public');
+            $disk = Storage::disk('secure');
             $pdf = $disk->get($document->file_path);
 
             // Panggil API BSrE — endpoint & parameter sesuai dokumentasi resmi BSSN
@@ -104,6 +108,7 @@ class BsreService
 
             if (! $res->successful()) {
                 Log::error('[BSRE] HTTP '.$res->status().' '.$res->body());
+
                 return $this->signMock($document, $signer);
             }
 
@@ -124,6 +129,7 @@ class BsreService
             return $newPath;
         } catch (\Throwable $e) {
             Log::error('[BSRE] '.$e->getMessage());
+
             return $this->signMock($document, $signer);
         }
     }

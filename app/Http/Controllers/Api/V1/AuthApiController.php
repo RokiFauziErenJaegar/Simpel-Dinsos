@@ -8,9 +8,11 @@ use App\Jobs\SendOtpJob;
 use App\Models\OtpCode;
 use App\Models\User;
 use App\Services\NotificationGateway;
+use App\Support\PhoneNumber;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\RateLimiter;
 
 class AuthApiController extends Controller
 {
@@ -18,6 +20,16 @@ class AuthApiController extends Controller
     {
         $data = $request->validate(['phone' => 'required|string|max:20']);
         $phone = $this->normalizePhone($data['phone']);
+
+        // Rate-limit pengiriman OTP per nomor (anti SMS/WA bombing).
+        $key = 'otp-send:'.$phone;
+        if (RateLimiter::tooManyAttempts($key, 5)) {
+            return response()->json([
+                'error' => 'Terlalu banyak permintaan OTP. Coba lagi dalam '.ceil(RateLimiter::availableIn($key) / 60).' menit.',
+            ], 429);
+        }
+        RateLimiter::hit($key, 900);
+
         $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
 
         OtpCode::create([
@@ -46,17 +58,31 @@ class AuthApiController extends Controller
 
         $phone = $this->normalizePhone($data['phone']);
 
+        // Rate-limit verifikasi per nomor (anti brute-force OTP).
+        $key = 'otp-verify:'.$phone;
+        if (RateLimiter::tooManyAttempts($key, 5)) {
+            return response()->json([
+                'error' => 'Terlalu banyak percobaan. Coba lagi dalam '.ceil(RateLimiter::availableIn($key) / 60).' menit.',
+            ], 429);
+        }
+
+        // Ambil OTP terbaru tanpa filter kode → attempts terhitung walau kode salah.
         $otp = OtpCode::where('phone', $phone)
-            ->where('code', $data['code'])
             ->whereNull('used_at')
             ->latest('id')
             ->first();
 
-        if (! $otp || ! $otp->isValid()) {
+        if (! $otp || ! $otp->isValid() || ! hash_equals($otp->code, $data['code'])) {
+            RateLimiter::hit($key, 900);
+            if ($otp && ! $otp->used_at) {
+                $otp->increment('attempts');
+            }
+
             return response()->json(['error' => 'Kode OTP salah atau kedaluwarsa'], 422);
         }
 
         $otp->update(['used_at' => now()]);
+        RateLimiter::clear($key);
 
         $user = User::firstOrCreate(
             ['phone' => $phone],
@@ -87,6 +113,7 @@ class AuthApiController extends Controller
     public function me(Request $request): JsonResponse
     {
         $user = $request->user();
+
         return response()->json([
             'id' => $user->id,
             'name' => $user->name,
@@ -101,14 +128,12 @@ class AuthApiController extends Controller
     public function logout(Request $request): JsonResponse
     {
         $request->user()->currentAccessToken()->delete();
+
         return response()->json(['ok' => true]);
     }
 
     protected function normalizePhone(string $phone): string
     {
-        $phone = preg_replace('/[^0-9+]/', '', $phone);
-        if (str_starts_with($phone, '08')) return '628'.substr($phone, 2);
-        if (str_starts_with($phone, '+62')) return substr($phone, 1);
-        return $phone;
+        return PhoneNumber::normalize($phone);
     }
 }

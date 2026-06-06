@@ -44,18 +44,18 @@
                 <div class="text-sm">
                     @if($application->status->value === 'completed')
                         ✅ <strong>Pengajuan telah selesai diproses</strong> pada {{ $application->completed_at?->translatedFormat('d M Y H:i') }}.
-                        @if($application->outputDocument)
+                        @if($application->outputDocument && $isOwner)
                             <a href="{{ route('document.verify', ['token' => $application->outputDocument->verification_token]) }}" class="block mt-3 btn-primary text-sm">Unduh Surat</a>
+                        @elseif($application->outputDocument)
+                            <div class="mt-2 text-xs text-slate-500">Masuk sebagai pemohon untuk mengunduh surat.</div>
                         @endif
                     @elseif($application->status->value === 'returned')
                         🔁 <strong>Pengajuan dikembalikan untuk diperbaiki.</strong>
-                        @php $reason = $application->logs->where('action', 'returned')->last()?->notes; @endphp
-                        @if($reason)<div class="mt-1 text-xs">Alasan: {{ $reason }}</div>@endif
-                        @auth
-                            @if(auth()->id() === $application->applicant_user_id)
-                                <a href="{{ route('warga.application.fix', $application->code) }}" class="block mt-3 btn-primary text-sm">Perbaiki & Kirim Ulang</a>
-                            @endif
-                        @endauth
+                        @if($isOwner)
+                            @php $reason = $application->logs->where('action', 'returned')->last()?->notes; @endphp
+                            @if($reason)<div class="mt-1 text-xs">Alasan: {{ $reason }}</div>@endif
+                            <a href="{{ route('warga.application.fix', $application->code) }}" class="block mt-3 btn-primary text-sm">Perbaiki & Kirim Ulang</a>
+                        @endif
                     @elseif($application->isOverdue())
                         ⚠ <strong>Pengajuan ini melebihi SLA standar.</strong> Tim Dinas Sosial sedang menyelesaikan secepat mungkin.
                     @else
@@ -77,7 +77,7 @@
                             @switch($log->action)
                                 @case('created') Pengajuan dikirim oleh pemohon @break
                                 @case('verified') Berkas diverifikasi @break
-                                @case('disposed') Disposisi ke {{ $log->user?->name }} @break
+                                @case('disposed') Disposisi ke bidang terkait @break
                                 @case('field_verification') Verifikasi lapangan @break
                                 @case('signed') Ditandatangani Kepala Dinas @break
                                 @case('completed') Pengajuan selesai @break
@@ -87,7 +87,7 @@
                                 @default {{ ucfirst(str_replace('_', ' ', $log->action)) }}
                             @endswitch
                         </div>
-                        @if ($log->notes)
+                        @if ($log->notes && $isOwner)
                             <div class="text-sm text-slate-600 mt-1">{{ $log->notes }}</div>
                         @endif
                     </div>

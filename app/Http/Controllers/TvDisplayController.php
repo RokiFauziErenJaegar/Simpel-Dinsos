@@ -13,6 +13,7 @@ class TvDisplayController extends Controller
     public function display()
     {
         $services = ServiceType::active()->orderBy('order_no')->take(8)->get();
+
         // Halaman TV no-cache supaya update template (CSS/JS inline) langsung
         // terpakai setelah deploy. Tanpa ini, browser bisa hold versi lama.
         return response()
@@ -92,6 +93,9 @@ class TvDisplayController extends Controller
      */
     public function debug(Request $request): JsonResponse
     {
+        // Endpoint diagnostik — hanya non-produksi (jangan bocorkan data operasional).
+        abort_unless(app()->environment(['local', 'testing']), 404);
+
         $today = today()->toDateString();
 
         $sample = QueueTicket::orderByDesc('id')->take(10)->get([

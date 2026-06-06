@@ -10,7 +10,6 @@ use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
-use Illuminate\Support\Facades\Storage;
 
 class LaporanBulanan extends Page
 {
@@ -45,6 +44,7 @@ class LaporanBulanan extends Page
                         ->label('Periode')
                         ->options(collect(range(0, 11))->mapWithKeys(function ($i) {
                             $d = now()->subMonths($i);
+
                             return [$d->format('Y-m') => $d->translatedFormat('F Y')];
                         })->all())
                         ->default(now()->format('Y-m'))

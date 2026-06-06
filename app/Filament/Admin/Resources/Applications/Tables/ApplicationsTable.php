@@ -3,15 +3,17 @@
 namespace App\Filament\Admin\Resources\Applications\Tables;
 
 use App\Enums\ApplicationStatus;
+use App\Jobs\SendApplicationNotificationJob;
 use App\Models\Application;
 use App\Models\ApplicationLog;
-use App\Models\OutputDocument;
+use App\Models\User;
 use App\Services\DocumentGenerator;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -19,6 +21,7 @@ use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Support\Facades\DB;
 
 class ApplicationsTable
 {
@@ -65,13 +68,20 @@ class ApplicationsTable
                 TextColumn::make('sla_due_at')
                     ->label('Batas SLA')
                     ->formatStateUsing(function ($record) {
-                        if (! $record->sla_due_at) return '—';
+                        if (! $record->sla_due_at) {
+                            return '—';
+                        }
                         if ($record->status instanceof ApplicationStatus && $record->status->isFinal()) {
                             return $record->sla_due_at->translatedFormat('d M H:i');
                         }
                         $diff = now()->diffInMinutes($record->sla_due_at, false);
-                        if ($diff < 0) return 'Lewat '.abs(round($diff)).' menit';
-                        if ($diff < 60) return 'Sisa '.round($diff).' menit';
+                        if ($diff < 0) {
+                            return 'Lewat '.abs(round($diff)).' menit';
+                        }
+                        if ($diff < 60) {
+                            return 'Sisa '.round($diff).' menit';
+                        }
+
                         return 'Sisa '.round($diff / 60).' jam';
                     })
                     ->color(fn ($record) => $record->isOverdue() ? 'danger' : 'gray'),
@@ -93,10 +103,11 @@ class ApplicationsTable
                     ->color('warning')
                     ->visible(function ($record) {
                         $ticket = $record->queueTicket;
+
                         return $ticket && $ticket->status === 'waiting';
                     })
                     ->schema([
-                        \Filament\Forms\Components\Select::make('counter')
+                        Select::make('counter')
                             ->label('Loket')
                             ->options([
                                 'LOKET 1' => 'Loket 1',
@@ -109,7 +120,9 @@ class ApplicationsTable
                     ])
                     ->action(function (Application $record, array $data) {
                         $ticket = $record->queueTicket;
-                        if (! $ticket) return;
+                        if (! $ticket) {
+                            return;
+                        }
                         $ticket->callToCounter($data['counter'], auth()->id());
                         Notification::make()
                             ->success()
@@ -122,26 +135,29 @@ class ApplicationsTable
                     ->label('Setujui')
                     ->icon('heroicon-o-check-circle')
                     ->color('success')
-                    ->visible(fn ($record) => in_array($record->status?->value ?? $record->status, ['submitted', 'in_verification']))
+                    ->visible(fn ($record) => auth()->user()?->role?->canVerifyApplication()
+                        && in_array($record->status?->value ?? $record->status, ['submitted', 'in_verification']))
                     ->requiresConfirmation()
                     ->modalHeading('Setujui pengajuan & lanjutkan?')
                     ->action(function (Application $record) {
                         $from = $record->status?->value ?? $record->status;
-                        $record->update([
-                            'status' => ApplicationStatus::InProcess->value,
-                            'current_step' => 'pemrosesan',
-                            'current_handler_id' => auth()->id(),
-                        ]);
-                        ApplicationLog::create([
-                            'application_id' => $record->id,
-                            'user_id' => auth()->id(),
-                            'action' => 'verified',
-                            'from_status' => $from,
-                            'to_status' => ApplicationStatus::InProcess->value,
-                            'notes' => 'Berkas diverifikasi & lanjut ke pemrosesan.',
-                        ]);
-                        // Notifikasi WA ke pemohon: pengajuan disetujui & sedang diproses.
-                        \App\Jobs\SendApplicationNotificationJob::dispatch($record->id, 'status');
+                        DB::transaction(function () use ($record, $from) {
+                            $record->update([
+                                'status' => ApplicationStatus::InProcess->value,
+                                'current_step' => 'pemrosesan',
+                                'current_handler_id' => auth()->id(),
+                            ]);
+                            ApplicationLog::create([
+                                'application_id' => $record->id,
+                                'user_id' => auth()->id(),
+                                'action' => 'verified',
+                                'from_status' => $from,
+                                'to_status' => ApplicationStatus::InProcess->value,
+                                'notes' => 'Berkas diverifikasi & lanjut ke pemrosesan.',
+                            ]);
+                        });
+                        // Notifikasi WA ke pemohon (setelah commit).
+                        SendApplicationNotificationJob::dispatch($record->id, 'status');
                         Notification::make()->success()->title('Pengajuan disetujui')->send();
                     }),
 
@@ -149,7 +165,8 @@ class ApplicationsTable
                     ->label('Kembalikan')
                     ->icon('heroicon-o-arrow-uturn-left')
                     ->color('info')
-                    ->visible(fn ($record) => ! in_array($record->status?->value ?? $record->status, ['completed', 'rejected', 'returned']))
+                    ->visible(fn ($record) => auth()->user()?->role?->canVerifyApplication()
+                        && ! in_array($record->status?->value ?? $record->status, ['completed', 'rejected', 'returned']))
                     ->modalHeading('Kembalikan pengajuan untuk diperbaiki')
                     ->schema([
                         Textarea::make('notes')
@@ -181,21 +198,21 @@ class ApplicationsTable
                     ])
                     ->action(function (Application $record, array $data) {
                         $from = $record->status?->value ?? $record->status;
-                        $record->update(['status' => ApplicationStatus::Returned->value]);
-
-                        // Tandai status validasi tiap berkas sesuai centang petugas.
-                        $record->applyDocumentReview($data['doc_review'] ?? []);
-
-                        ApplicationLog::create([
-                            'application_id' => $record->id,
-                            'user_id' => auth()->id(),
-                            'action' => 'returned',
-                            'from_status' => $from,
-                            'to_status' => ApplicationStatus::Returned->value,
-                            'notes' => $data['notes'],
-                        ]);
+                        DB::transaction(function () use ($record, $from, $data) {
+                            $record->update(['status' => ApplicationStatus::Returned->value]);
+                            // Tandai status validasi tiap berkas sesuai centang petugas.
+                            $record->applyDocumentReview($data['doc_review'] ?? []);
+                            ApplicationLog::create([
+                                'application_id' => $record->id,
+                                'user_id' => auth()->id(),
+                                'action' => 'returned',
+                                'from_status' => $from,
+                                'to_status' => ApplicationStatus::Returned->value,
+                                'notes' => $data['notes'],
+                            ]);
+                        });
                         // Notifikasi WA ke pemohon: status dikembalikan + alasan.
-                        \App\Jobs\SendApplicationNotificationJob::dispatch($record->id, 'status', null, $data['notes']);
+                        SendApplicationNotificationJob::dispatch($record->id, 'status', null, $data['notes']);
                         Notification::make()->success()->title('Pengajuan dikembalikan ke pemohon')->send();
                     }),
 
@@ -203,27 +220,30 @@ class ApplicationsTable
                     ->label('Tolak')
                     ->icon('heroicon-o-x-circle')
                     ->color('danger')
-                    ->visible(fn ($record) => ! in_array($record->status?->value ?? $record->status, ['completed', 'rejected']))
+                    ->visible(fn ($record) => auth()->user()?->role?->canDecideApplication()
+                        && ! in_array($record->status?->value ?? $record->status, ['completed', 'rejected']))
                     ->schema([
                         Textarea::make('reason')->label('Alasan penolakan')->required(),
                     ])
                     ->action(function (Application $record, array $data) {
                         $from = $record->status?->value ?? $record->status;
-                        $record->update([
-                            'status' => ApplicationStatus::Rejected->value,
-                            'rejection_reason' => $data['reason'],
-                            'completed_at' => now(),
-                        ]);
-                        ApplicationLog::create([
-                            'application_id' => $record->id,
-                            'user_id' => auth()->id(),
-                            'action' => 'rejected',
-                            'from_status' => $from,
-                            'to_status' => ApplicationStatus::Rejected->value,
-                            'notes' => $data['reason'],
-                        ]);
+                        DB::transaction(function () use ($record, $from, $data) {
+                            $record->update([
+                                'status' => ApplicationStatus::Rejected->value,
+                                'rejection_reason' => $data['reason'],
+                                'completed_at' => now(),
+                            ]);
+                            ApplicationLog::create([
+                                'application_id' => $record->id,
+                                'user_id' => auth()->id(),
+                                'action' => 'rejected',
+                                'from_status' => $from,
+                                'to_status' => ApplicationStatus::Rejected->value,
+                                'notes' => $data['reason'],
+                            ]);
+                        });
                         // Notifikasi WA ke pemohon: status ditolak + alasan.
-                        \App\Jobs\SendApplicationNotificationJob::dispatch($record->id, 'status', null, $data['reason']);
+                        SendApplicationNotificationJob::dispatch($record->id, 'status', null, $data['reason']);
                         Notification::make()->danger()->title('Pengajuan ditolak')->send();
                     }),
 
@@ -231,7 +251,8 @@ class ApplicationsTable
                     ->label('Terbitkan')
                     ->icon('heroicon-o-document-arrow-down')
                     ->color('primary')
-                    ->visible(fn ($record) => in_array($record->status?->value ?? $record->status, ['in_process', 'awaiting_signature']))
+                    ->visible(fn ($record) => auth()->user()?->role?->canIssueDocument()
+                        && in_array($record->status?->value ?? $record->status, ['in_process', 'awaiting_signature']))
                     ->requiresConfirmation()
                     ->modalHeading('Terbitkan surat ber-QR & selesaikan pengajuan?')
                     ->modalDescription('Sistem akan membuat PDF resmi dengan kop, nomor surat, QR verifikasi, dan tanda tangan Kepala Dinas.')
@@ -239,28 +260,29 @@ class ApplicationsTable
                         $from = $record->status?->value ?? $record->status;
 
                         // Pilih signer: Kadis kalau ada, fallback ke user saat ini
-                        $signer = \App\Models\User::where('role', 'kadis')->first() ?? auth()->user();
+                        $signer = User::where('role', 'kadis')->first() ?? auth()->user();
 
                         $doc = app(DocumentGenerator::class)->issue($record, $signer);
 
-                        $record->update([
-                            'status' => ApplicationStatus::Completed->value,
-                            'current_step' => 'selesai',
-                            'completed_at' => now(),
-                        ]);
-
-                        ApplicationLog::create([
-                            'application_id' => $record->id,
-                            'user_id' => auth()->id(),
-                            'action' => 'completed',
-                            'from_status' => $from,
-                            'to_status' => ApplicationStatus::Completed->value,
-                            'notes' => 'Surat diterbitkan: '.$doc->document_number,
-                        ]);
+                        DB::transaction(function () use ($record, $from, $doc) {
+                            $record->update([
+                                'status' => ApplicationStatus::Completed->value,
+                                'current_step' => 'selesai',
+                                'completed_at' => now(),
+                            ]);
+                            ApplicationLog::create([
+                                'application_id' => $record->id,
+                                'user_id' => auth()->id(),
+                                'action' => 'completed',
+                                'from_status' => $from,
+                                'to_status' => ApplicationStatus::Completed->value,
+                                'notes' => 'Surat diterbitkan: '.$doc->document_number,
+                            ]);
+                        });
 
                         // Push ke queue worker (lebih robust dari afterResponse)
-                        \App\Jobs\SendApplicationNotificationJob::dispatch($record->id, 'completed', $doc->id);
-                        \App\Jobs\SendApplicationNotificationJob::dispatch($record->id, 'survey');
+                        SendApplicationNotificationJob::dispatch($record->id, 'completed', $doc->id);
+                        SendApplicationNotificationJob::dispatch($record->id, 'survey');
 
                         Notification::make()
                             ->success()
@@ -268,6 +290,17 @@ class ApplicationsTable
                             ->body('PDF tersimpan & pemohon dinotifikasi.')
                             ->send();
                     }),
+
+                Action::make('downloadSurat')
+                    ->label('Unduh Surat')
+                    ->icon('heroicon-o-arrow-down-tray')
+                    ->color('success')
+                    ->visible(fn ($record) => ($record->status?->value ?? $record->status) === 'completed'
+                        && $record->outputDocument !== null)
+                    ->url(fn (Application $record) => $record->outputDocument
+                        ? route('output.file', ['docId' => $record->outputDocument->id])
+                        : null)
+                    ->openUrlInNewTab(),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
