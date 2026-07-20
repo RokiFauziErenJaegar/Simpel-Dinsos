@@ -22,8 +22,11 @@
         </div>
     @endif
 
-    <form method="post" action="{{ route('layanan.ajukan.kirim', $service->slug) }}" enctype="multipart/form-data" class="space-y-6" x-data="{ anonymous: false }">
+    @php $allowsKuasa = $service->slug === \App\Http\Controllers\ApplicationController::KUASA_SERVICE_SLUG; @endphp
+    <form method="post" action="{{ route('layanan.ajukan.kirim', $service->slug) }}" enctype="multipart/form-data" class="space-y-6" x-data="{ anonymous: false, relation: '{{ old('beneficiary_relation', 'diri_sendiri') }}' }">
         @csrf
+        {{-- Nonce anti-duplikat: satu pengiriman = satu pengajuan (fitur 1) --}}
+        <input type="hidden" name="form_nonce" value="{{ $formNonce }}">
 
         {{-- Data Pemohon --}}
         <div class="card-elev p-6">
@@ -54,19 +57,34 @@
             <div class="grid md:grid-cols-2 gap-4">
                 <div class="md:col-span-2">
                     <label class="block text-sm font-medium text-slate-700 mb-2">Hubungan dengan Anda</label>
-                    <div class="grid grid-cols-3 gap-2">
-                        @foreach([
+                    @php
+                        $relationOptions = [
                             'diri_sendiri' => 'Diri sendiri',
                             'anggota_keluarga' => 'Anggota keluarga',
-                            'kuasa' => 'Orang lain (kuasa)',
-                        ] as $val => $label)
+                        ];
+                        // Opsi "Orang lain (kuasa)" hanya untuk layanan STTL/LKS (fitur 3).
+                        if ($allowsKuasa) {
+                            $relationOptions['kuasa'] = 'Orang lain (kuasa)';
+                        }
+                    @endphp
+                    <div class="grid grid-cols-2 {{ $allowsKuasa ? 'sm:grid-cols-3' : '' }} gap-2">
+                        @foreach($relationOptions as $val => $label)
                             <label class="cursor-pointer">
-                                <input type="radio" name="beneficiary_relation" value="{{ $val }}" {{ old('beneficiary_relation', 'diri_sendiri') === $val ? 'checked' : '' }} class="peer sr-only">
+                                <input type="radio" name="beneficiary_relation" value="{{ $val }}" x-model="relation" {{ old('beneficiary_relation', 'diri_sendiri') === $val ? 'checked' : '' }} class="peer sr-only">
                                 <div class="text-center px-3 py-3 border-2 border-slate-200 rounded-lg text-sm peer-checked:border-[color:var(--brand)] peer-checked:bg-blue-50 peer-checked:text-[color:var(--brand)] font-medium">{{ $label }}</div>
                             </label>
                         @endforeach
                     </div>
                 </div>
+
+                @if($allowsKuasa)
+                    {{-- Upload surat kuasa — wajib bila penerima manfaat dikuasakan (fitur 3) --}}
+                    <div class="md:col-span-2" x-show="relation === 'kuasa'" x-cloak x-transition>
+                        <label class="block text-sm font-medium text-slate-700 mb-1">Surat Kuasa (bermaterai) *</label>
+                        <p class="text-xs text-slate-500 mb-2">Karena penerima manfaat dikuasakan, mohon unggah surat kuasa. Format JPG/PNG/PDF · maks 2 MB.</p>
+                        <input type="file" name="surat_kuasa" accept=".jpg,.jpeg,.png,.pdf" x-bind:required="relation === 'kuasa'" class="block w-full text-sm text-slate-500 file:mr-3 file:py-2 file:px-4 file:rounded-lg file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-[color:var(--brand)] hover:file:bg-blue-100">
+                    </div>
+                @endif
                 <div>
                     <label class="block text-sm font-medium text-slate-700 mb-1">Nama Penerima Manfaat *</label>
                     <input name="beneficiary_name" type="text" required value="{{ old('beneficiary_name') }}" class="w-full px-3 py-2.5 rounded-lg border border-slate-200 focus:border-[color:var(--brand)] focus:ring-2 focus:ring-blue-100 outline-none">
@@ -156,6 +174,7 @@
         input.addEventListener('change', () => checkInput(input));
     });
 
+    let submitted = false;
     form.addEventListener('submit', (e) => {
         let ok = true;
         form.querySelectorAll('input[type="file"]').forEach(input => {
@@ -165,6 +184,17 @@
             e.preventDefault();
             const first = form.querySelector('.file-too-large');
             if (first) first.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            return;
+        }
+        // Anti double-click (fitur 1): begitu pengiriman valid berjalan, kunci tombol.
+        if (submitted) { e.preventDefault(); return; }
+        submitted = true;
+        const btn = form.querySelector('button[type="submit"]');
+        if (btn) {
+            btn.disabled = true;
+            btn.style.opacity = '0.6';
+            btn.style.cursor = 'not-allowed';
+            btn.textContent = 'Mengirim… mohon tunggu';
         }
     });
 })();

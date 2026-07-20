@@ -5,6 +5,7 @@ namespace App\Filament\Admin\Widgets;
 use App\Models\Application;
 use App\Models\Complaint;
 use App\Models\QueueTicket;
+use App\Services\SkmReportGenerator;
 use Filament\Widgets\StatsOverviewWidget;
 use Filament\Widgets\StatsOverviewWidget\Stat;
 use Illuminate\Support\Facades\Cache;
@@ -21,7 +22,7 @@ class KadisOverview extends StatsOverviewWidget
     protected function getStats(): array
     {
         // Cache 60 detik — ringkasan tidak perlu real-time, dipakai untuk laporan.
-        $s = Cache::remember('kadis.overview.v2', 60, function () {
+        $s = Cache::remember('kadis.overview.v3', 60, function () {
             // Rentang bulan berjalan — pakai whereBetween agar index pada
             // submitted_at terpakai (sargable), bukan whereMonth/whereYear.
             $start = now()->startOfMonth();
@@ -65,13 +66,17 @@ class KadisOverview extends StatsOverviewWidget
                 ->where('sla_due_at', '<', now())
                 ->count();
 
+            // Indeks Kepuasan Masyarakat nyata dari tabel survei (bukan lagi hardcoded).
+            $skmIndex = SkmReportGenerator::currentMonthIndex();
+
             return compact('totalMonth', 'completed', 'onTimePct', 'avgTimePct', 'avgActualMinutes',
-                'activeComplaints', 'servedToday', 'overdue');
+                'activeComplaints', 'servedToday', 'overdue', 'skmIndex');
         });
 
         ['totalMonth' => $totalMonth, 'completed' => $completed, 'onTimePct' => $onTimePct,
             'avgTimePct' => $avgTimePct, 'avgActualMinutes' => $avgActualMinutes,
-            'activeComplaints' => $activeComplaints, 'servedToday' => $servedToday, 'overdue' => $overdue] = $s;
+            'activeComplaints' => $activeComplaints, 'servedToday' => $servedToday, 'overdue' => $overdue,
+            'skmIndex' => $skmIndex] = $s;
 
         // Format ringkas durasi rata-rata untuk deskripsi.
         $avgTimeHuman = $avgActualMinutes <= 0 ? '—'
@@ -113,10 +118,10 @@ class KadisOverview extends StatsOverviewWidget
                 ->descriptionIcon('heroicon-m-calendar-days')
                 ->color('primary'),
 
-            Stat::make('Indeks Kepuasan', '87,3 / 100')
-                ->description('Skor SKM bulan berjalan')
+            Stat::make('Indeks Kepuasan', $skmIndex !== null ? number_format($skmIndex, 1).' / 100' : '—')
+                ->description($skmIndex !== null ? 'Skor SKM bulan berjalan' : 'Belum ada responden bulan ini')
                 ->descriptionIcon('heroicon-m-star')
-                ->color('success'),
+                ->color($skmIndex === null ? 'gray' : ($skmIndex >= 76 ? 'success' : 'warning')),
         ];
     }
 }

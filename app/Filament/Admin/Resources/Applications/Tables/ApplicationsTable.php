@@ -3,6 +3,7 @@
 namespace App\Filament\Admin\Resources\Applications\Tables;
 
 use App\Enums\ApplicationStatus;
+use App\Enums\ServiceLocation;
 use App\Jobs\SendApplicationNotificationJob;
 use App\Models\Application;
 use App\Models\ApplicationLog;
@@ -60,6 +61,13 @@ class ApplicationsTable
                     ->size('sm')
                     ->toggleable(),
 
+                TextColumn::make('location')
+                    ->label('Lokasi')
+                    ->badge()
+                    ->formatStateUsing(fn ($state) => $state instanceof ServiceLocation ? $state->shortLabel() : '—')
+                    ->color(fn ($state) => $state instanceof ServiceLocation ? $state->color() : 'gray')
+                    ->placeholder('Online'),
+
                 TextColumn::make('submitted_at')
                     ->label('Diajukan')
                     ->dateTime('d M H:i')
@@ -93,6 +101,9 @@ class ApplicationsTable
                 SelectFilter::make('service_type_id')
                     ->label('Jenis Layanan')
                     ->relationship('serviceType', 'name'),
+                SelectFilter::make('location')
+                    ->label('Lokasi Pelayanan')
+                    ->options(ServiceLocation::options()),
             ])
             ->recordActions([
                 ViewAction::make()->label('Lihat'),
@@ -124,6 +135,8 @@ class ApplicationsTable
                             return;
                         }
                         $ticket->callToCounter($data['counter'], auth()->id());
+                        // Fitur 5: lokasi pelayanan mengikuti lokasi petugas yang melayani.
+                        $record->stampLocationFrom(auth()->user());
                         Notification::make()
                             ->success()
                             ->title('Antrian dipanggil')
@@ -147,6 +160,8 @@ class ApplicationsTable
                                 'current_step' => 'pemrosesan',
                                 'current_handler_id' => auth()->id(),
                             ]);
+                            // Fitur 5: stempel lokasi pelayanan = lokasi petugas.
+                            $record->stampLocationFrom(auth()->user());
                             ApplicationLog::create([
                                 'application_id' => $record->id,
                                 'user_id' => auth()->id(),
@@ -233,6 +248,7 @@ class ApplicationsTable
                                 'rejection_reason' => $data['reason'],
                                 'completed_at' => now(),
                             ]);
+                            $record->stampLocationFrom(auth()->user());
                             ApplicationLog::create([
                                 'application_id' => $record->id,
                                 'user_id' => auth()->id(),
@@ -270,6 +286,7 @@ class ApplicationsTable
                                 'current_step' => 'selesai',
                                 'completed_at' => now(),
                             ]);
+                            $record->stampLocationFrom(auth()->user());
                             ApplicationLog::create([
                                 'application_id' => $record->id,
                                 'user_id' => auth()->id(),

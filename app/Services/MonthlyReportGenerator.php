@@ -61,7 +61,25 @@ class MonthlyReportGenerator
             ->filter(fn ($r) => $r['total'] > 0)
             ->values();
 
+        // Sebaran pelayanan per lokasi (Dinsos vs MPP) — fitur 5.
+        $perLocation = [];
+        foreach (\App\Enums\ServiceLocation::cases() as $loc) {
+            $base = Application::whereBetween('submitted_at', [$from, $to])->where('location', $loc->value);
+            $perLocation[] = [
+                'label' => $loc->label(),
+                'total' => (clone $base)->count(),
+                'completed' => (clone $base)->where('status', 'completed')->count(),
+            ];
+        }
+        $onlineBase = Application::whereBetween('submitted_at', [$from, $to])->whereNull('location');
+        $perLocation[] = [
+            'label' => 'Online / Belum diproses',
+            'total' => (clone $onlineBase)->count(),
+            'completed' => (clone $onlineBase)->where('status', 'completed')->count(),
+        ];
+
         $pdf = Pdf::loadView('documents.monthly-report', [
+            'per_location' => $perLocation,
             'month' => $month,
             'from' => $from, 'to' => $to,
             'total' => $total, 'completed' => $completed, 'rejected' => $rejected,
