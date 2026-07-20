@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\ServiceLocation;
 use App\Enums\UserRole;
 use Filament\Models\Contracts\FilamentUser;
 use Filament\Panel;
@@ -29,6 +30,7 @@ class User extends Authenticatable implements FilamentUser
         'kecamatan_id',
         'pekon_id',
         'is_active',
+        'location',
         'last_login_at',
         'signature_path',
         'stamp_path',
@@ -53,6 +55,7 @@ class User extends Authenticatable implements FilamentUser
             'password' => 'hashed',
             'is_active' => 'boolean',
             'role' => UserRole::class,
+            'location' => ServiceLocation::class,
             'nik' => 'encrypted',
             'two_factor_secret' => 'encrypted',
             'two_factor_recovery_codes' => 'encrypted:array',

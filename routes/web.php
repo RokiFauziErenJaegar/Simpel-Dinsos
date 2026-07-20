@@ -1,7 +1,9 @@
 <?php
 
+use App\Http\Controllers\AccountSwitchController;
 use App\Http\Controllers\ApplicationController;
 use App\Http\Controllers\ApplicationResubmitController;
+use App\Http\Controllers\KieController;
 use App\Http\Controllers\KioskController;
 use App\Http\Controllers\OperatorPekonController;
 use App\Http\Controllers\PublicController;
@@ -104,6 +106,20 @@ Route::get('/2fa/verifikasi', [TwoFactorController::class, 'challenge'])->name('
 Route::post('/2fa/verifikasi', [TwoFactorController::class, 'verifyChallenge'])->name('two-factor.verify-challenge');
 
 // =========================
+// Multi-akun petugas (ala Instagram/WhatsApp)
+// Tambah akun kedua tanpa mengeluarkan akun aktif, lalu pindah tanpa password.
+// Sengaja tanpa gerbang 2FA di sini — lihat AccountSwitchController.
+// =========================
+Route::middleware('auth')->prefix('akun-petugas')->name('account.')->group(function () {
+    Route::get('/tambah', [AccountSwitchController::class, 'create'])->name('add');
+    Route::post('/tambah', [AccountSwitchController::class, 'store'])->name('add.store');
+    Route::post('/pindah/{userId}', [AccountSwitchController::class, 'switch'])
+        ->whereNumber('userId')->name('switch');
+    Route::post('/lupakan/{userId}', [AccountSwitchController::class, 'forget'])
+        ->whereNumber('userId')->name('forget');
+});
+
+// =========================
 // Operator Pekon
 // =========================
 Route::middleware(['auth', 'role:operator_pekon'])->prefix('pekon')->name('pekon.')->group(function () {
@@ -113,10 +129,20 @@ Route::middleware(['auth', 'role:operator_pekon'])->prefix('pekon')->name('pekon
 });
 
 // =========================
+// Konsultasi Warga (KIE) — pendaftaran mandiri warga
+// =========================
+Route::get('/kie', [KieController::class, 'create'])->name('kie.create');
+Route::post('/kie', [KieController::class, 'store'])->name('kie.kirim');
+Route::get('/kie/sukses/{code}', [KieController::class, 'success'])->name('kie.sukses');
+
+// =========================
 // Survei Kepuasan Masyarakat
 // =========================
 Route::get('/skm/{code}', [SatisfactionSurveyController::class, 'create'])->name('skm.create');
 Route::post('/skm/{code}', [SatisfactionSurveyController::class, 'store'])->name('skm.store');
+
+// Statistik Kepuasan Masyarakat (publik) — fitur 4
+Route::get('/statistik-kepuasan', [SatisfactionSurveyController::class, 'publicStats'])->name('skm.stats');
 
 // =========================
 // TV Lobi

@@ -3,6 +3,7 @@
 namespace App\Providers\Filament;
 
 use App\Filament\Admin\Widgets\KadisOverview;
+use App\Filament\Admin\Widgets\KieOverview;
 use App\Http\Middleware\AuthenticateAdminPanel;
 use App\Http\Middleware\EnsureTwoFactor;
 use Filament\Http\Middleware\AuthenticateSession;
@@ -12,6 +13,8 @@ use Filament\Pages\Dashboard;
 use Filament\Panel;
 use Filament\PanelProvider;
 use Filament\Support\Colors\Color;
+use Filament\Support\Facades\FilamentView;
+use Filament\View\PanelsRenderHook;
 use Filament\Widgets\AccountWidget;
 use Illuminate\Cookie\Middleware\AddQueuedCookiesToResponse;
 use Illuminate\Cookie\Middleware\EncryptCookies;
@@ -22,6 +25,21 @@ use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 class AdminPanelProvider extends PanelProvider
 {
+    public function boot(): void
+    {
+        // Multi-akun petugas: pemilih akun di topbar, dan pintasan akun yang
+        // pernah dipakai di halaman login.
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::USER_MENU_BEFORE,
+            fn (): string => view('filament.account-switcher')->render(),
+        );
+
+        FilamentView::registerRenderHook(
+            PanelsRenderHook::AUTH_LOGIN_FORM_AFTER,
+            fn (): string => view('filament.login-known-accounts')->render(),
+        );
+    }
+
     public function panel(Panel $panel): Panel
     {
         return $panel
@@ -49,6 +67,7 @@ class AdminPanelProvider extends PanelProvider
             ->discoverWidgets(in: app_path('Filament/Admin/Widgets'), for: 'App\Filament\Admin\Widgets')
             ->widgets([
                 KadisOverview::class,
+                KieOverview::class,
                 AccountWidget::class,
             ])
             ->middleware([

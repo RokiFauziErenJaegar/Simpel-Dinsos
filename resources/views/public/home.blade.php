@@ -68,6 +68,37 @@
     </div>
 </section>
 
+{{-- AKSES CEPAT --}}
+@php
+    $skmTotal = \App\Models\SatisfactionSurvey::count();
+    $kieToday = \App\Models\KieConsultation::whereDate('created_at', today())->count();
+@endphp
+<section class="max-w-7xl mx-auto px-4 md:px-6 -mt-8 relative z-10">
+    <div class="grid sm:grid-cols-3 gap-4">
+        <a href="{{ route('kie.create') }}" class="card-elev p-5 hover:-translate-y-1 transition flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-blue-50 text-[color:var(--brand)] flex items-center justify-center text-2xl flex-shrink-0">💬</div>
+            <div>
+                <div class="font-semibold text-slate-900">Konsultasi Warga (KIE)</div>
+                <div class="text-sm text-slate-500">Daftar konsultasi · {{ $kieToday }} hari ini</div>
+            </div>
+        </a>
+        <a href="{{ route('skm.stats') }}" class="card-elev p-5 hover:-translate-y-1 transition flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-2xl flex-shrink-0">⭐</div>
+            <div>
+                <div class="font-semibold text-slate-900">Statistik Kepuasan</div>
+                <div class="text-sm text-slate-500">{{ number_format($skmTotal) }} warga telah mengisi survei</div>
+            </div>
+        </a>
+        <a href="{{ route('cek-status.index') }}" class="card-elev p-5 hover:-translate-y-1 transition flex items-center gap-4">
+            <div class="w-12 h-12 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-2xl flex-shrink-0">🔎</div>
+            <div>
+                <div class="font-semibold text-slate-900">Cek Status Pengajuan</div>
+                <div class="text-sm text-slate-500">Pantau pengajuan Anda real-time</div>
+            </div>
+        </a>
+    </div>
+</section>
+
 {{-- LAYANAN POPULER --}}
 <section class="max-w-7xl mx-auto px-4 md:px-6 py-16">
     <div class="flex items-end justify-between mb-8">

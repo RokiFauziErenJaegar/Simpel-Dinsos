@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\ApplicationStatus;
+use App\Enums\ServiceLocation;
 use App\Models\Traits\BelongsToTenant;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -18,7 +19,7 @@ class Application extends Model
     protected $fillable = [
         'code', 'service_type_id', 'applicant_user_id', 'current_handler_id',
         'beneficiary_name', 'beneficiary_nik', 'beneficiary_relation',
-        'purpose', 'status', 'current_step', 'priority',
+        'purpose', 'status', 'current_step', 'priority', 'location',
         'submitted_at', 'sla_due_at', 'completed_at',
         'rejection_reason', 'meta',
     ];
@@ -31,8 +32,24 @@ class Application extends Model
             'completed_at' => 'datetime',
             'meta' => 'array',
             'status' => ApplicationStatus::class,
+            'location' => ServiceLocation::class,
             'beneficiary_nik' => 'encrypted',
         ];
+    }
+
+    /**
+     * Stempel lokasi pelayanan mengikuti lokasi petugas yang menangani.
+     * Hanya di-set sekali (saat masih kosong) agar lokasi pertama kali
+     * pengajuan disentuh tetap tercatat sebagai lokasi pelayanan.
+     */
+    public function stampLocationFrom(?User $user): void
+    {
+        if ($this->location === null && $user?->location !== null) {
+            $this->location = $user->location instanceof ServiceLocation
+                ? $user->location->value
+                : $user->location;
+            $this->save();
+        }
     }
 
     /** Maskar NIK untuk tampilan (mis. 187103********0001) */

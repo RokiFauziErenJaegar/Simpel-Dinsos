@@ -49,6 +49,7 @@
         .btn-outline:hover { border-color: var(--brand); color: var(--brand); }
         .card-elev { background: white; border-radius: 1rem; box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 4px 12px rgba(0,0,0,0.04); }
         .brand-gradient { background: linear-gradient(135deg, var(--brand) 0%, var(--brand-dark) 100%); }
+        [x-cloak] { display: none !important; }
     </style>
     @stack('head')
 </head>
@@ -66,7 +67,9 @@
         <div class="hidden md:flex items-center gap-1">
             <a href="{{ route('home') }}" class="px-4 py-2 text-sm font-medium text-slate-700 hover:text-[color:var(--brand)] rounded-lg hover:bg-slate-50">Beranda</a>
             <a href="{{ route('layanan.index') }}" class="px-4 py-2 text-sm font-medium text-slate-700 hover:text-[color:var(--brand)] rounded-lg hover:bg-slate-50">Layanan</a>
+            <a href="{{ route('kie.create') }}" class="px-4 py-2 text-sm font-medium text-slate-700 hover:text-[color:var(--brand)] rounded-lg hover:bg-slate-50">Konsultasi</a>
             <a href="{{ route('cek-status.index') }}" class="px-4 py-2 text-sm font-medium text-slate-700 hover:text-[color:var(--brand)] rounded-lg hover:bg-slate-50">Cek Status</a>
+            <a href="{{ route('skm.stats') }}" class="px-4 py-2 text-sm font-medium text-slate-700 hover:text-[color:var(--brand)] rounded-lg hover:bg-slate-50">Kepuasan</a>
             <a href="{{ route('pengaduan.create') }}" class="px-4 py-2 text-sm font-medium text-slate-700 hover:text-[color:var(--brand)] rounded-lg hover:bg-slate-50">Lapor</a>
         </div>
         <div class="flex items-center gap-2">
@@ -116,7 +119,9 @@
             <div class="font-semibold text-white mb-3">Tautan</div>
             <ul class="space-y-2 text-sm">
                 <li><a href="{{ route('layanan.index') }}" class="hover:text-white">16 Layanan Publik</a></li>
+                <li><a href="{{ route('kie.create') }}" class="hover:text-white">Konsultasi Warga (KIE)</a></li>
                 <li><a href="{{ route('cek-status.index') }}" class="hover:text-white">Cek Status</a></li>
+                <li><a href="{{ route('skm.stats') }}" class="hover:text-white">Statistik Kepuasan</a></li>
                 <li><a href="{{ route('pengaduan.create') }}" class="hover:text-white">Pengaduan</a></li>
                 <li><a href="{{ route('tv.display') }}" target="_blank" class="hover:text-white">Display Lobi</a></li>
             </ul>

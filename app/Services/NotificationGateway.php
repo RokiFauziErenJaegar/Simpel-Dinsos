@@ -174,6 +174,38 @@ TXT);
         $this->dispatchTo($applicant, $message, 'Survei Kepuasan · '.$application->code);
     }
 
+    /**
+     * Konfirmasi pendaftaran Konsultasi Warga (KIE). Dikirim ke nomor WA yang
+     * warga isi sendiri sebelum konsultasi. Return true kalau terkirim.
+     */
+    public function sendKieRegistration(\App\Models\KieConsultation $kie): bool
+    {
+        if (! $kie->phone) {
+            return false;
+        }
+
+        $waktu = ($kie->created_at ?? now())->translatedFormat('d M Y · H:i');
+        $lokasi = $kie->location instanceof \App\Enums\ServiceLocation
+            ? "Lokasi: {$kie->location->label()}\n"
+            : '';
+
+        $message = trim(<<<TXT
+Halo Bapak/Ibu {$kie->name} 🙏
+
+Terima kasih telah mendaftar *Layanan Konsultasi (KIE)* di Dinas Sosial Kabupaten Pringsewu.
+
+No. Registrasi: *{$kie->code}*
+Waktu: {$waktu}
+{$lokasi}
+Silakan menuju petugas kami untuk memulai konsultasi. Layanan ini *GRATIS*.
+
+Salam C-A-R-E — Cepat, Adaptif, Responsif, Empati 💙
+— Dinas Sosial Pringsewu
+TXT);
+
+        return $this->dispatch('whatsapp', $kie->phone, $message);
+    }
+
     // ============================================================
     // Dispatch logic
     // ============================================================
@@ -265,7 +297,7 @@ TXT);
                 ->timeout(5)
                 ->retry(1, 300) // 1x retry, delay 300ms — kalau >5s memang lemot, jangan tunggu lagi
                 ->asMultipart()
-                ->post('https://api.fonnte.com/send', [
+                ->post(config('services.notifications.fonnte_endpoint', 'https://api.fonnte.com/send'), [
                     [
                         'name' => 'target',
                         'contents' => $this->normalizePhoneFonnte($to),

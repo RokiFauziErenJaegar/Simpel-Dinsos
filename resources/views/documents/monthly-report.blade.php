@@ -102,6 +102,20 @@
     </tbody>
 </table>
 
+<div class="title">SEBARAN PELAYANAN PER LOKASI</div>
+<table class="data">
+    <thead><tr><th>Lokasi Pelayanan</th><th style="text-align:right;">Total Pengajuan</th><th style="text-align:right;">Selesai</th></tr></thead>
+    <tbody>
+        @foreach($per_location as $r)
+            <tr>
+                <td>{{ $r['label'] }}</td>
+                <td style="text-align:right;">{{ number_format($r['total']) }}</td>
+                <td style="text-align:right;">{{ number_format($r['completed']) }}</td>
+            </tr>
+        @endforeach
+    </tbody>
+</table>
+
 <div class="title">PENGADUAN MASYARAKAT</div>
 <p style="margin:6px 0;">Selama periode ini diterima <strong>{{ $complaints }}</strong> pengaduan, dengan <strong>{{ $complaints_resolved }}</strong> telah ditindaklanjuti dan selesai.</p>
 

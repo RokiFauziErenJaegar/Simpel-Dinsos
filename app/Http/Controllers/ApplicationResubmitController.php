@@ -45,10 +45,15 @@ class ApplicationResubmitController extends Controller
 
         $this->guardOversizedUploads($request);
 
+        // Opsi "kuasa" hanya sah untuk layanan L03 (fitur 3).
+        $allowedRelations = $application->serviceType?->slug === ApplicationController::KUASA_SERVICE_SLUG
+            ? 'diri_sendiri,anggota_keluarga,kuasa'
+            : 'diri_sendiri,anggota_keluarga';
+
         $data = $request->validate([
             'beneficiary_name' => 'required|string|max:150',
             'beneficiary_nik' => 'nullable|string|size:16',
-            'beneficiary_relation' => 'required|string|in:diri_sendiri,anggota_keluarga,kuasa',
+            'beneficiary_relation' => 'required|string|in:'.$allowedRelations,
             'purpose' => 'nullable|string|max:1000',
             'replace_docs' => 'array',
             'replace_docs.*' => 'nullable|file|mimes:jpg,jpeg,png,pdf|max:2048',

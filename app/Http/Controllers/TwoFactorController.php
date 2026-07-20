@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\User;
+use App\Services\AccountSwitcher;
 use App\Services\TwoFactorService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -131,7 +132,13 @@ class TwoFactorController extends Controller
         Auth::login($user, true);
         $request->session()->regenerate(); // cegah session fixation
         $request->session()->forget('2fa.user_id');
-        $request->session()->put('2fa.verified', true);
+
+        // Tandai 2FA lolos untuk akun ini saja, bukan untuk seluruh sesi —
+        // lihat AccountSwitcher soal kenapa flag global tidak aman di multi-akun.
+        $switcher = app(AccountSwitcher::class);
+        $switcher->markTwoFactorVerified($user->id);
+        $switcher->syncSessionPasswordHash($user);
+
         $user->update(['last_login_at' => now()]);
     }
 }

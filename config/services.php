@@ -48,8 +48,10 @@ return [
         // Auto-fallback ke email kalau WA gagal (untuk notif non-OTP)
         'fallback_email' => env('NOTIFICATION_FALLBACK_EMAIL', false),
 
-        // Fonnte (https://fonnte.com)
+        // Fonnte (https://fonnte.com) — atau gateway self-hosted yang kompatibel Fonnte
         'fonnte_token' => env('FONNTE_TOKEN'),
+        // Endpoint kirim; default Fonnte resmi. Override utk gateway sendiri (mis. WA gateway Baileys).
+        'fonnte_endpoint' => env('FONNTE_ENDPOINT', 'https://api.fonnte.com/send'),
 
         // Wablas (https://wablas.com)
         'wablas_token' => env('WABLAS_TOKEN'),

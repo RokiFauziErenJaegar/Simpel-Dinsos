@@ -38,8 +38,14 @@
             <div class="grid md:grid-cols-2 gap-4">
                 <div class="md:col-span-2">
                     <label class="block text-sm font-medium text-slate-700 mb-2">Hubungan</label>
-                    <div class="grid grid-cols-3 gap-2">
-                        @foreach(['diri_sendiri' => 'Diri sendiri', 'anggota_keluarga' => 'Anggota keluarga', 'kuasa' => 'Orang lain (kuasa)'] as $val => $label)
+                    @php
+                        $relationOptions = ['diri_sendiri' => 'Diri sendiri', 'anggota_keluarga' => 'Anggota keluarga'];
+                        if ($application->serviceType?->slug === \App\Http\Controllers\ApplicationController::KUASA_SERVICE_SLUG) {
+                            $relationOptions['kuasa'] = 'Orang lain (kuasa)';
+                        }
+                    @endphp
+                    <div class="grid grid-cols-2 {{ count($relationOptions) > 2 ? 'sm:grid-cols-3' : '' }} gap-2">
+                        @foreach($relationOptions as $val => $label)
                             <label class="cursor-pointer">
                                 <input type="radio" name="beneficiary_relation" value="{{ $val }}" {{ old('beneficiary_relation', $application->beneficiary_relation) === $val ? 'checked' : '' }} class="peer sr-only">
                                 <div class="text-center px-3 py-3 border-2 border-slate-200 rounded-lg text-sm peer-checked:border-[color:var(--brand)] peer-checked:bg-blue-50 peer-checked:text-[color:var(--brand)] font-medium">{{ $label }}</div>

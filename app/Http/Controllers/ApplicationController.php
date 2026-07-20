@@ -14,6 +14,7 @@ use App\Models\ServiceType;
 use App\Models\User;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Str;
@@ -22,11 +23,22 @@ class ApplicationController extends Controller
 {
     use HandlesDocumentUploads;
 
+    /**
+     * Slug layanan yang MASIH mengizinkan penerima manfaat dikuasakan
+     * (Surat Tanda Terdaftar Lembaga/Yayasan Sosial/Panti Asuhan — L03).
+     * Untuk 15 layanan lainnya, opsi "Orang lain (kuasa)" dihapus (fitur 3).
+     */
+    public const KUASA_SERVICE_SLUG = 'surat-tanda-terdaftar-lks';
+
     public function create(string $slug)
     {
         $service = ServiceType::active()->where('slug', $slug)->firstOrFail();
 
-        return view('public.applications.create', compact('service'));
+        // Nonce anti-duplikat (fitur 1): satu form = satu pengajuan, walau
+        // tombol diklik berkali-kali saat internet lambat.
+        $formNonce = (string) Str::uuid();
+
+        return view('public.applications.create', compact('service', 'formNonce'));
     }
 
     public function store(Request $request, string $slug)
@@ -35,95 +47,149 @@ class ApplicationController extends Controller
 
         $this->guardOversizedUploads($request);
 
-        $data = $request->validate([
+        // === Anti-duplikat (fitur 1) — replay guard berbasis nonce form ===
+        // Klik berkali-kali / retry jaringan mengirim nonce yang sama. Bila nonce
+        // sudah pernah sukses membuat pengajuan, kembalikan hasil yang SAMA
+        // (redirect ke halaman sukses) tanpa membuat pengajuan baru.
+        $nonce = trim((string) $request->input('form_nonce', ''));
+        if ($nonce !== '' && ($existingCode = Cache::get('appform:'.$nonce))) {
+            return redirect()->route('pengajuan.sukses', ['code' => $existingCode]);
+        }
+
+        // === Penerima manfaat (fitur 3) ===
+        // Opsi "kuasa" hanya sah untuk layanan L03; jika dikuasakan, surat kuasa wajib.
+        $allowsKuasa = $service->slug === self::KUASA_SERVICE_SLUG;
+        $allowedRelations = $allowsKuasa
+            ? 'diri_sendiri,anggota_keluarga,kuasa'
+            : 'diri_sendiri,anggota_keluarga';
+
+        $rules = [
             'beneficiary_name' => 'required|string|max:150',
             'beneficiary_nik' => 'nullable|string|size:16',
-            'beneficiary_relation' => 'required|string|in:diri_sendiri,anggota_keluarga,kuasa',
+            'beneficiary_relation' => 'required|string|in:'.$allowedRelations,
             'applicant_name' => 'required|string|max:150',
             'applicant_phone' => 'required|string|max:20',
             'applicant_email' => 'nullable|email|max:150',
             'purpose' => 'nullable|string|max:1000',
             'docs.*' => 'required|file|mimes:jpg,jpeg,png,pdf|max:2048',
             'consent' => 'required|accepted',
-        ], $this->documentUploadMessages());
+        ];
+        if ($allowsKuasa && $request->input('beneficiary_relation') === 'kuasa') {
+            $rules['surat_kuasa'] = 'required|file|mimes:jpg,jpeg,png,pdf|max:2048';
+        }
+        $data = $request->validate($rules, $this->documentUploadMessages());
 
-        $application = DB::transaction(function () use ($request, $service, $data) {
-            $applicant = $this->resolveOrCreateApplicant($data);
-
-            // Retry sampai 3x kalau race condition pada generateCode (UNIQUE violation)
-            $application = null;
-            $attempts = 0;
-            do {
-                $attempts++;
-                try {
-                    $application = Application::create([
-                        'code' => Application::generateCode($service),
-                        'service_type_id' => $service->id,
-                        'applicant_user_id' => $applicant->id,
-                        'beneficiary_name' => $data['beneficiary_name'],
-                        'beneficiary_nik' => $data['beneficiary_nik'] ?? null,
-                        'beneficiary_relation' => $data['beneficiary_relation'],
-                        'purpose' => $data['purpose'] ?? null,
-                        'status' => ApplicationStatus::Submitted->value,
-                        'current_step' => 'verifikasi_loket',
-                        'priority' => 'normal',
-                        'submitted_at' => now(),
-                    ]);
-                    break;
-                } catch (UniqueConstraintViolationException $e) {
-                    if ($attempts >= 3) {
-                        throw $e;
-                    }
-                    usleep(50000); // 50ms jitter
-                }
-            } while ($attempts < 3);
-
-            $application->update(['sla_due_at' => $application->calculateSlaDueAt()]);
-
-            // Simpan berkas
-            $docTypes = $request->input('doc_types', []);
-            $docLabels = $request->input('doc_labels', []);
-            $files = $request->file('docs', []);
-
-            foreach ($files as $key => $file) {
-                // Berkas sensitif (KTP/KK/foto PPKS) wajib ke disk 'secure'.
-                // Disk 'secure' default ke local terisolasi, dapat di-switch ke MinIO
-                // dengan SECURE_DISK_DRIVER=minio di .env tanpa ubah kode.
-                $path = $file->store('applications/'.$application->id, 'secure');
-                ApplicationDocument::create([
-                    'application_id' => $application->id,
-                    'type' => $docTypes[$key] ?? 'other',
-                    'label' => $docLabels[$key] ?? $file->getClientOriginalName(),
-                    'file_path' => $path,
-                    'original_name' => $file->getClientOriginalName(),
-                    'file_size' => $file->getSize(),
-                    'mime_type' => $file->getMimeType(),
-                ]);
+        // Pembuatan pengajuan dibungkus lock per-nonce agar dua request kembar
+        // (double submit) tidak balapan membuat dua pengajuan sekaligus.
+        $create = function () use ($request, $service, $data, $nonce, $allowsKuasa) {
+            if ($nonce !== '' && ($existingCode = Cache::get('appform:'.$nonce))) {
+                return $existingCode;
             }
 
-            // Generate tiket antrian (race-safe: retry bila nomor bentrok)
-            QueueTicket::createNext([
-                'application_id' => $application->id,
-                'priority' => 'normal',
-                'status' => 'waiting',
-            ], 'A');
+            $application = DB::transaction(function () use ($request, $service, $data, $allowsKuasa) {
+                $applicant = $this->resolveOrCreateApplicant($data);
 
-            // Log
-            ApplicationLog::create([
-                'application_id' => $application->id,
-                'user_id' => $applicant->id,
-                'action' => 'created',
-                'to_status' => ApplicationStatus::Submitted->value,
-                'notes' => 'Pengajuan dikirim oleh pemohon.',
-            ]);
+                // Retry sampai 3x kalau race condition pada generateCode (UNIQUE violation)
+                $application = null;
+                $attempts = 0;
+                do {
+                    $attempts++;
+                    try {
+                        $application = Application::create([
+                            'code' => Application::generateCode($service),
+                            'service_type_id' => $service->id,
+                            'applicant_user_id' => $applicant->id,
+                            'beneficiary_name' => $data['beneficiary_name'],
+                            'beneficiary_nik' => $data['beneficiary_nik'] ?? null,
+                            'beneficiary_relation' => $data['beneficiary_relation'],
+                            'purpose' => $data['purpose'] ?? null,
+                            'status' => ApplicationStatus::Submitted->value,
+                            'current_step' => 'verifikasi_loket',
+                            'priority' => 'normal',
+                            'submitted_at' => now(),
+                        ]);
+                        break;
+                    } catch (UniqueConstraintViolationException $e) {
+                        if ($attempts >= 3) {
+                            throw $e;
+                        }
+                        usleep(50000); // 50ms jitter
+                    }
+                } while ($attempts < 3);
 
-            return $application;
-        });
+                $application->update(['sla_due_at' => $application->calculateSlaDueAt()]);
 
-        // Push ke queue worker (lebih robust dari afterResponse di Railway PHP-FPM).
-        SendApplicationNotificationJob::dispatch($application->id, 'submitted');
+                // Simpan berkas
+                $docTypes = $request->input('doc_types', []);
+                $docLabels = $request->input('doc_labels', []);
+                $files = $request->file('docs', []);
 
-        return redirect()->route('pengajuan.sukses', ['code' => $application->code]);
+                foreach ($files as $key => $file) {
+                    // Berkas sensitif (KTP/KK/foto PPKS) wajib ke disk 'secure'.
+                    // Disk 'secure' default ke local terisolasi, dapat di-switch ke MinIO
+                    // dengan SECURE_DISK_DRIVER=minio di .env tanpa ubah kode.
+                    $path = $file->store('applications/'.$application->id, 'secure');
+                    ApplicationDocument::create([
+                        'application_id' => $application->id,
+                        'type' => $docTypes[$key] ?? 'other',
+                        'label' => $docLabels[$key] ?? $file->getClientOriginalName(),
+                        'file_path' => $path,
+                        'original_name' => $file->getClientOriginalName(),
+                        'file_size' => $file->getSize(),
+                        'mime_type' => $file->getMimeType(),
+                    ]);
+                }
+
+                // Surat kuasa (fitur 3) — hanya L03 saat penerima manfaat dikuasakan.
+                if ($allowsKuasa && $data['beneficiary_relation'] === 'kuasa'
+                    && ($surat = $request->file('surat_kuasa'))) {
+                    $path = $surat->store('applications/'.$application->id, 'secure');
+                    ApplicationDocument::create([
+                        'application_id' => $application->id,
+                        'type' => 'surat_kuasa',
+                        'label' => 'Surat Kuasa',
+                        'file_path' => $path,
+                        'original_name' => $surat->getClientOriginalName(),
+                        'file_size' => $surat->getSize(),
+                        'mime_type' => $surat->getMimeType(),
+                    ]);
+                }
+
+                // Generate tiket antrian (race-safe: retry bila nomor bentrok)
+                QueueTicket::createNext([
+                    'application_id' => $application->id,
+                    'priority' => 'normal',
+                    'status' => 'waiting',
+                ], 'A');
+
+                // Log
+                ApplicationLog::create([
+                    'application_id' => $application->id,
+                    'user_id' => $applicant->id,
+                    'action' => 'created',
+                    'to_status' => ApplicationStatus::Submitted->value,
+                    'notes' => 'Pengajuan dikirim oleh pemohon.',
+                ]);
+
+                return $application;
+            });
+
+            // Push ke queue worker (lebih robust dari afterResponse di Railway PHP-FPM).
+            SendApplicationNotificationJob::dispatch($application->id, 'submitted');
+
+            // Tandai nonce sudah dipakai → request kembar berikutnya jadi idempoten.
+            if ($nonce !== '') {
+                Cache::put('appform:'.$nonce, $application->code, now()->addMinutes(30));
+            }
+
+            return $application->code;
+        };
+
+        $code = $nonce !== ''
+            ? Cache::lock('appform-lock:'.$nonce, 30)->block(20, $create)
+            : $create();
+
+        return redirect()->route('pengajuan.sukses', ['code' => $code]);
     }
 
     public function success(string $code)
